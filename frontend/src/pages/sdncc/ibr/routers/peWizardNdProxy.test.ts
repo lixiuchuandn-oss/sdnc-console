@@ -1,5 +1,6 @@
 import {
   applyWanNdProxy,
+  collectExistingWanNdProxyIfNames,
   collectWanNdProxyIfNames,
   ifaceHasNdProxy,
   ndProxySidHostFromPrefix,
@@ -7,6 +8,7 @@ import {
   pickIfaceHardwareMac,
   validateWanNdProxyIntent,
   wanNdProxyEnabledOn,
+  wanNdProxyIntentDiffers,
 } from './peWizardNdProxy';
 
 describe('peWizardNdProxy', () => {
@@ -85,6 +87,38 @@ describe('peWizardNdProxy', () => {
     expect(ifaceHasNdProxy({ ipv6_nd_proxy: '240e:398:8507:1:1::301' })).toBe(true);
     expect(wanNdProxyEnabledOn('GigabitEthernet 0/7/0', ['GigabitEthernet0/7/0'])).toBe(true);
     expect(wanNdProxyEnabledOn('GigabitEthernet 0/7/0', ['GigabitEthernet 0/7/0'])).toBe(true);
+  });
+
+  it('wanNdProxyIntentDiffers is false when tunnel-ref reentry does not change ND', () => {
+    const cfg = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/7/0',
+          ipv6_nd_proxy: '240e:398:8507:1:1::301',
+        },
+      ],
+      pe: {
+        publicConfig: {
+          sidPrefix: '240e:398:8507:1:1::301/64',
+          wanNdProxyIfNames: ['GigabitEthernet 0/7/0'],
+        },
+      },
+    };
+    expect(
+      wanNdProxyIntentDiffers(cfg, {
+        sidPrefix: '240e:398:8507:1:1::301/64',
+        wanNdProxy: true,
+        wanDev: 'GigabitEthernet 0/7/0',
+      }),
+    ).toBe(false);
+    expect(collectExistingWanNdProxyIfNames(cfg)).toEqual(['GigabitEthernet 0/7/0']);
+    expect(
+      wanNdProxyIntentDiffers(cfg, {
+        sidPrefix: '240e:398:8507:1:1::301/64',
+        wanNdProxy: false,
+        wanDev: 'GigabitEthernet 0/7/0',
+      }),
+    ).toBe(true);
   });
 
   it('rejects checked ND proxy without SID host', () => {

@@ -35,6 +35,8 @@ import {
   assertUniqueHubInventoryIfNames,
   buildHubWanMirrorRowsFromDevice,
   buildWanStaticRoutesFromRows,
+  pickIpv4RouteForWan,
+  resolveHubWanRowsForPeWizardForm,
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
 import { isValidRdRtToken } from '../../srv6/srv6RdRt';
@@ -43,10 +45,10 @@ import {
   collectWanNdProxyIfNames,
   ifaceHasNdProxy,
   ndProxySidHostFromPrefix,
-  patchVrConfigWanNdProxy,
   validateWanNdProxyIntent,
   wanNdProxyEnabledOn,
 } from '../peWizardNdProxy';
+import { applyPeWizardReferencedChanges } from '../peWizardReferencedPatch';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -207,14 +209,6 @@ function deviceStaticIfRoleSet(
   return roleText(iface?.[key]) || undefined;
 }
 
-function pickIpv4RouteForWan(routes: any[], wanName: string, roleDest: unknown, rolePriority?: unknown) {
-  if (!wanName || (!roleText(roleDest) && rolePriority == null)) return undefined;
-  const onDev = routes.filter((r) => roleText(r?.dev) === wanName);
-  if (!onDev.length) return undefined;
-  const dest = roleText(roleDest);
-  return (dest && onDev.find((r) => roleText(r?.destination) === dest)) || onDev[0];
-}
-
 /** IPv6 路由没有 dev。角色没配则不回显；配了则按目的网段对上设备条目，单条时直接展示以便看出不一致。 */
 function pickIpv6RouteForRole(
   routes: any[],
@@ -250,6 +244,7 @@ function buildSpokeRoleMirror(
     wanName,
     pcfg.wanRouteDest,
     pcfg.wanRoutePriority,
+    true,
   );
   const wanRoute6 = pickIpv6RouteForRole(routes6, pcfg.ipv6Dest, pcfg.ipv6Via, true);
   const bgpArr = Array.isArray(dev?.bgp) ? dev.bgp : [];
@@ -674,6 +669,10 @@ const PEWizard: React.FC = () => {
                 wanDev: pcfg.wanName || pcfg.wanDev,
                 wanIpv4: pcfg.wanIpv4,
                 wanIpv6: pcfg.wanIpv6,
+                ipv4RouteDest: pcfg.wanRouteDest,
+                ipv4RoutePriority: pcfg.wanRoutePriority,
+                ipv6Dest: pcfg.ipv6Dest,
+                ipv6Via: pcfg.ipv6Via,
                 lanConfigs,
               });
               const proxyIfs = Array.isArray(pcfg.wanNdProxyIfNames) ? pcfg.wanNdProxyIfNames : [];
@@ -886,17 +885,29 @@ const PEWizard: React.FC = () => {
         spokeMirror.hubWanInventory = hubWanFromRole.map((w) => {
           const ifName = roleText(w.ifName);
           const iface = findInterfaceInDevice(dev, ifName);
-          const v4 = pickIpv4RouteForWan(routes4, ifName, w.ipv4RouteDest, w.ipv4RoutePriority);
+          const v4 = pickIpv4RouteForWan(
+            routes4,
+            ifName,
+            w.ipv4RouteDest,
+            w.ipv4RoutePriority,
+            hubWanFromRole.length === 1,
+          );
           const v6 = pickIpv6RouteForRole(routes6, w.ipv6Dest, w.ipv6Via, hubWanFromRole.length === 1);
+          const dest4 = roleText(v4?.destination) || roleText(w.ipv4RouteDest) || undefined;
+          const prio4 =
+            v4?.priority !== undefined && v4?.priority !== null
+              ? Number(v4.priority)
+              : w.ipv4RoutePriority != null
+                ? Number(w.ipv4RoutePriority)
+                : undefined;
           return {
             ifName,
             ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', w.ipv4),
             ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', w.ipv6),
-            ipv4RouteDest: v4?.destination || undefined,
-            ipv4RoutePriority:
-              v4?.priority !== undefined && v4?.priority !== null ? Number(v4.priority) : undefined,
-            ipv6Dest: ipv6DestFromRoute(v6),
-            ipv6Via: v6?.via || undefined,
+            ipv4RouteDest: dest4,
+            ipv4RoutePriority: Number.isFinite(prio4 as number) ? prio4 : undefined,
+            ipv6Dest: ipv6DestFromRoute(v6) || roleText(w.ipv6Dest) || undefined,
+            ipv6Via: roleText(v6?.via) || roleText(w.ipv6Via) || undefined,
             ndProxy: ifaceHasNdProxy(iface),
           };
         });
@@ -977,11 +988,23 @@ const PEWizard: React.FC = () => {
                 wanDev: wanDevMapped,
                 wanIpv4: wanIpv4Mapped,
                 wanIpv6: wanIpv6Mapped,
+                ipv4RouteDest: pcfg.wanRouteDest ?? peRest.wanRouteDest,
+                ipv4RoutePriority: pcfg.wanRoutePriority ?? peRest.wanRoutePriority,
+                ipv6Dest: pcfg.ipv6Dest ?? peRest.ipv6Dest,
+                ipv6Via: pcfg.ipv6Via ?? peRest.ipv6Via,
                 lanConfigs: lanConfigsVr3,
               });
               const proxyIfs = Array.isArray(pcfg.wanNdProxyIfNames) ? pcfg.wanNdProxyIfNames : [];
+              const hubRows = resolveHubWanRowsForPeWizardForm(
+                hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}],
+                ifaceItems,
+                {
+                  ipv4_route: (dev as any)?.ipv4_route,
+                  ipv6_route: (dev as any)?.ipv6_route,
+                },
+              );
               return {
-                hubWanInventory: (hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}]).map(
+                hubWanInventory: (hubRows.length ? hubRows : [{}]).map(
                   (row) => ({
                     ...row,
                     ndProxy:
@@ -1389,43 +1412,51 @@ const PEWizard: React.FC = () => {
       message.error('缺少 IBR 实例 UUID，无法继续');
       return;
     }
-    let ndProxyOnly = false;
+    let tunnelReferenced = false;
+    let refNamesPart = '当前 IBR 已被 SRv6 隧道引用';
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
-        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
-        ndProxyOnly = true;
-        message.info(
-          `该 VR 已被 SRv6 隧道引用，本次仅保存/下发 WAN Locator SID ND 代答变更，避免向导全量覆盖隧道配置。${namesPart}`,
-          8,
-        );
+        refNamesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
+        tunnelReferenced = true;
       }
     } catch (e: any) {
       // refs 接口失败时不阻塞原有流程，但要让用户感知
       console.warn('PEWizard: fetchSrv6VrReferences failed:', e);
     }
-    if (!ndProxyOnly) {
-      try {
-        await form.validateFields();
-      } catch {
-        message.warning('请先完善表单必填项');
-        return;
-      }
-      if (!ensureUniqueHubIfNames()) return;
+    try {
+      await form.validateFields();
+    } catch {
+      message.warning('请先完善表单必填项');
+      return;
     }
+    if (!ensureUniqueHubIfNames()) return;
     if (!ensureNdProxyIntent()) return;
     try {
       setLoading(true);
       const values = form.getFieldsValue(true);
       let cfg: Record<string, unknown>;
-      if (ndProxyOnly) {
+      let changedLabels: string[] = [];
+      if (tunnelReferenced) {
         const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
         const base =
           existing && typeof existing === 'object' && !Array.isArray(existing)
-            ? (JSON.parse(JSON.stringify(existing)) as Record<string, unknown>)
+            ? (existing as Record<string, unknown>)
             : {};
-        cfg = patchVrConfigWanNdProxy(base, values);
+        const patched = applyPeWizardReferencedChanges(base, values, {
+          isHubPe,
+          existingHubInventory: parseHubInventoryFromConfig(existingCfg) || parseHubInventoryFromConfig(base),
+        });
+        if (!patched.changedLabels.length) {
+          message.info(
+            `该 IBR 已被 SRv6 隧道引用，未检测到可下发的变更，已跳过设备下发。${refNamesPart}`,
+            8,
+          );
+          return;
+        }
+        cfg = patched.cfg;
+        changedLabels = patched.changedLabels;
       } else {
         cfg = buildConfigFromValues(values);
       }
@@ -1448,7 +1479,11 @@ const PEWizard: React.FC = () => {
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
-      message.success('配置已下发');
+      message.success(
+        tunnelReferenced
+          ? `该 IBR 已被隧道引用，已按变更字段更新并下发：${changedLabels.join('、')}（${refNamesPart}）。`
+          : '配置已下发',
+      );
     } catch (e: any) {
       message.error(e?.message || '下发失败');
     } finally {

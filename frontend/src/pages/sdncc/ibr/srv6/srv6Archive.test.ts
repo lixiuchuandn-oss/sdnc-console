@@ -197,7 +197,42 @@ describe('srv6Archive buildTunnelArchive', () => {
         rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
         tunnelTopology: 'S',
       }),
-    ).toThrow(/SID\/64 下一跳落在目的网段内/);
+    ).toThrow(/下一跳落在目的网段内/);
+  });
+
+  it('omits SID static when locator shares WAN prefix (on-link)', () => {
+    const peA = {
+      bgp: [{ vrf: 0, asn: 65000 }, { vrf: 10, asn: 65001 }],
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/0/0', ipv6_static: '2200::1/64' },
+        { name: 'GigabitEthernet 0/0/1', ipv4_static: '10.0.0.1/24', vrf: 10 },
+      ],
+      segment_routing_srv6: { prefix: '2200::aaaa' },
+    };
+    const peB = {
+      bgp: [{ vrf: 0, asn: 65003 }],
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/0/0', ipv6_static: '2200::100/64' },
+        { name: 'GigabitEthernet 0/0/1', ipv4_static: '10.0.0.2/24', vrf: 10 },
+      ],
+      segment_routing_srv6: { prefix: '2200::1235' },
+    };
+    const archive = buildTunnelArchive({
+      peA: 'pe-a',
+      peB: 'pe-b',
+      peAInnerIf: 'GigabitEthernet 0/0/1',
+      peBInnerIf: 'GigabitEthernet 0/0/1',
+      peConfigs: { peA, peB },
+      ceConfigs: { ceA: rawCeA, ceB: rawCeA },
+      rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
+      tunnelTopology: 'S',
+    });
+    const peASid = archive.injectedDelta?.peA?.ipv6Routes?.filter((r) => r.destination !== '::/0');
+    const peBSid = archive.injectedDelta?.peB?.ipv6Routes?.filter((r) => r.destination !== '::/0');
+    expect(peASid).toEqual([]);
+    expect(peBSid).toEqual([]);
+    expect(archive.injectedDelta?.peA?.ipv6Routes?.some((r) => r.destination === '::/0')).toBe(true);
+    expect(archive.injectedDelta?.peB?.ipv6Routes?.some((r) => r.destination === '::/0')).toBe(true);
   });
 
   it('Hub SID/64 via prefers WAN ipv6_route gateway over interface address', () => {

@@ -3,6 +3,7 @@ import {
   buildWanStaticRoutesFromRows,
   enrichHubWanRowsFromDeviceRoutes,
   mergeHubWanFormRowsForWizard,
+  pickIpv4RouteForWan,
   sanitizeIpv6RoutesForDevice,
   type WanRouteFormRow,
 } from './peWizardWanRoutes';
@@ -51,6 +52,27 @@ describe('peWizardWanRoutes P2', () => {
     expect(out.ipv6_route[0]).toEqual({ destination: '::/0', via: '203::33' });
   });
 
+  it('pickIpv4RouteForWan matches spaced/unspaced WAN names and dest without dev', () => {
+    expect(
+      pickIpv4RouteForWan(
+        [{ destination: '20.2.2.100/32', dev: 'GigabitEthernet0/8/0', priority: 100 }],
+        'GigabitEthernet 0/8/0',
+        '20.2.2.100/32',
+      )?.destination,
+    ).toBe('20.2.2.100/32');
+    expect(
+      pickIpv4RouteForWan(
+        [{ destination: '20.2.2.100/32', priority: 80 }],
+        'GigabitEthernet 0/8/0',
+        '20.2.2.100/32',
+      )?.priority,
+    ).toBe(80);
+    expect(
+      pickIpv4RouteForWan([{ destination: '20.2.2.100/32', priority: 100 }], 'GigabitEthernet 0/8/0', undefined, undefined, true)
+        ?.destination,
+    ).toBe('20.2.2.100/32');
+  });
+
   it('enrichHubWanRowsFromDeviceRoutes maps routes by interface dev', () => {
     const rows = enrichHubWanRowsFromDeviceRoutes<WanRouteFormRow>(
       [{ ifName: 'ge0' }, { ifName: 'ge1' }],
@@ -66,6 +88,15 @@ describe('peWizardWanRoutes P2', () => {
     expect(rows[0].ipv4RoutePriority).toBe(80);
     expect(rows[0].ipv6Via).toBe('203::33');
     expect(rows[1].ipv6Via).toBe('203::44');
+  });
+
+  it('enrichHubWanRowsFromDeviceRoutes fills ipv4 dest when device omits dev', () => {
+    const rows = enrichHubWanRowsFromDeviceRoutes<WanRouteFormRow>(
+      [{ ifName: 'GigabitEthernet 0/8/0' }],
+      { ipv4_route: [{ destination: '20.2.2.100/32', priority: 100 }] },
+    );
+    expect(rows[0].ipv4RouteDest).toBe('20.2.2.100/32');
+    expect(rows[0].ipv4RoutePriority).toBe(100);
   });
 
   it('enrichHubWanRowsFromDeviceRoutes preserves inventory ipv6Via when set', () => {

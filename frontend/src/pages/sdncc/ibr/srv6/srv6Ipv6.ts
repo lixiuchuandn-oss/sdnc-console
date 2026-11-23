@@ -178,10 +178,58 @@ export function isIpv6HostInCidr(host: string, cidr: string): boolean {
 }
 
 export const SID64_VIA_IN_DEST_MESSAGE =
-  'SID/64 下一跳落在目的网段内，路由无效。经上游跨网段时请先在角色向导「静态路由（WAN）」填写公网 IPv6 网关；直连时 SID locator 与对端公网地址须分属不同网段。';
+  '无法为该 PE 注入到对端 SID 前缀的静态路由：下一跳落在目的网段内，设备不会按该路由转发。请先在该 PE 角色向导「静态路由（WAN）」填写公网 IPv6 网关（上游下一跳，且不得落在 SID 前缀内）。';
+
+export const SID64_SKIP_ONLINK_MESSAGE =
+  '对端 SID 前缀与本端公网同网段，已省略 SID 静态路由（接口直连可达）。';
+
+export type Sid64RouteDecision = 'inject' | 'skip_onlink' | 'invalid';
+
+export type Sid64InjectPlan = {
+  sid?: { destination: string; via: string };
+  sidDecision?: Sid64RouteDecision;
+  vrfDefault?: { destination: string; vrf: number | string; via: string };
+};
+
+export function formatSid64RouteSnippet(destination?: string, via?: string): string | undefined {
+  const dest = String(destination ?? '').trim();
+  const hop = String(via ?? '').trim();
+  if (!dest || !hop) return undefined;
+  return `{ "destination": "${dest}", "via": "${hop}" }`;
+}
+
+export function describeSid64InvalidRoute(destination?: string, via?: string): string {
+  const snippet = formatSid64RouteSnippet(destination, via);
+  const inject = snippet ? `\n本将随隧道注入 ipv6_route：${snippet}。因下一跳落在 SID 目的网段内，该路由无效，已拦截。` : '';
+  return `${SID64_VIA_IN_DEST_MESSAGE}${inject}`;
+}
+
+export function formatSid64InjectPlanNote(plan?: Sid64InjectPlan): string | undefined {
+  if (!plan?.sid && !plan?.vrfDefault) return undefined;
+  const lines: string[] = [];
+  if (plan.sid) {
+    const snippet = formatSid64RouteSnippet(plan.sid.destination, plan.sid.via);
+    if (plan.sidDecision === 'invalid') {
+      lines.push(`SID 前缀路由（拦截未下发）：${snippet}`);
+    } else if (plan.sidDecision === 'skip_onlink') {
+      lines.push('SID 前缀路由：已省略（本端公网与对端 SID 同网段，直连可达）');
+    } else if (snippet) {
+      lines.push(`SID 前缀路由：${snippet}`);
+    }
+  }
+  if (plan.vrfDefault) {
+    const held = plan.sidDecision === 'invalid' ? '（SID 拦截时本端暂不注入）' : '';
+    lines.push(
+      `VRF 默认路由：{ "destination": "${plan.vrfDefault.destination}", "vrf": ${JSON.stringify(
+        plan.vrfDefault.vrf,
+      )}, "via": "${plan.vrfDefault.via}" }${held}`,
+    );
+  }
+  return lines.join('\n');
+}
 
 /**
- * SID/64 静态路由下一跳校验：via 不得落在 destination 网段内。
+ * SID 前缀静态路由下一跳：via 不得落在 destination 网段内。
  * @returns 错误文案；合法则 undefined
  */
 export function validateSid64NextHop(destination?: string, via?: string): string | undefined {
@@ -194,9 +242,48 @@ export function validateSid64NextHop(destination?: string, via?: string): string
   return undefined;
 }
 
-export function assertValidSid64NextHop(destination?: string, via?: string): void {
-  const err = validateSid64NextHop(destination, via);
-  if (err) throw new Error(err);
+/**
+ * 直连同网段：本端 WAN 也在对端 SID 前缀内 → 省略 SID 静态路由（connected 已覆盖）。
+ * 跨网段且 via 落在 SID 前缀内 → 仍拦截（缺 WAN 网关）。
+ */
+export function decideSid64Route(
+  destination?: string,
+  via?: string,
+  localWanIpv6?: string,
+): { decision: Sid64RouteDecision; message?: string } {
+  const invalid = validateSid64NextHop(destination, via);
+  if (!invalid) return { decision: 'inject' };
+  const dest = String(destination ?? '').trim();
+  const local = String(localWanIpv6 ?? '')
+    .trim()
+    .split('/')[0];
+  if (local && dest && isIpv6HostInCidr(local, dest)) {
+    return { decision: 'skip_onlink', message: SID64_SKIP_ONLINK_MESSAGE };
+  }
+  return { decision: 'invalid', message: describeSid64InvalidRoute(destination, via) };
+}
+
+export function assertValidSid64NextHop(
+  destination?: string,
+  via?: string,
+  localWanIpv6?: string,
+): Sid64RouteDecision {
+  const decided = decideSid64Route(destination, via, localWanIpv6);
+  if (decided.decision === 'invalid') {
+    throw new Error(decided.message || SID64_VIA_IN_DEST_MESSAGE);
+  }
+  return decided.decision;
+}
+
+/** PE-A / PE-B 同类说明去重：原因完全相同时 PE-B 只标「同 PE-A」。 */
+export function formatPairedEndpointNotes(peA?: string, peB?: string): string | undefined {
+  if (!peA && !peB) return undefined;
+  if (peA && peB) {
+    if (peA === peB) return `PE-A：${peA}\nPE-B：同 PE-A`;
+    return `PE-A：${peA}\nPE-B：${peB}`;
+  }
+  if (peA) return `PE-A：${peA}`;
+  return `PE-B：${peB}`;
 }
 
 /** 将 IPv6 主机地址按 prefixLen 掩码为网段地址（不含 /prefix 后缀） */

@@ -4,7 +4,12 @@ import {
   isIpv6HostInCidr,
   maskToIpv6Network,
   resolveSid64Via,
+  SID64_SKIP_ONLINK_MESSAGE,
   SID64_VIA_IN_DEST_MESSAGE,
+  decideSid64Route,
+  describeSid64InvalidRoute,
+  formatPairedEndpointNotes,
+  formatSid64InjectPlanNote,
   validateSid64NextHop,
 } from './srv6Ipv6';
 
@@ -130,6 +135,49 @@ describe('srv6Ipv6', () => {
       expect(validateSid64NextHop('::/0', 'nexthop-vrf 0')).toBeUndefined();
       expect(validateSid64NextHop('2200::/64', '')).toBeUndefined();
       expect(validateSid64NextHop('', '2200::100')).toBeUndefined();
+    });
+  });
+
+  describe('decideSid64Route', () => {
+    it('skips SID static when local WAN is on-link with peer SID prefix', () => {
+      const out = decideSid64Route('2200::/64', '2200::100', '2200::1');
+      expect(out.decision).toBe('skip_onlink');
+      expect(out.message).toBe(SID64_SKIP_ONLINK_MESSAGE);
+    });
+
+    it('still rejects cross-subnet via-in-dest when local WAN is outside SID prefix', () => {
+      const out = decideSid64Route('2200::/64', '2200::100', '2100::1');
+      expect(out.decision).toBe('invalid');
+      expect(out.message).toBe(describeSid64InvalidRoute('2200::/64', '2200::100'));
+      expect(out.message).toContain('"destination": "2200::/64"');
+      expect(out.message).toContain('"via": "2200::100"');
+      expect(out.message).toContain(SID64_VIA_IN_DEST_MESSAGE);
+    });
+
+    it('formatSid64InjectPlanNote shows blocked SID snippet and VRF default', () => {
+      const note = formatSid64InjectPlanNote({
+        sid: { destination: '2200::/64', via: '2100::1' },
+        sidDecision: 'invalid',
+        vrfDefault: { destination: '::/0', vrf: 10, via: 'nexthop-vrf 0' },
+      });
+      expect(note).toContain('拦截未下发');
+      expect(note).toContain('"destination": "2200::/64"');
+      expect(note).toContain('"via": "2100::1"');
+      expect(note).toContain('nexthop-vrf 0');
+    });
+
+    it('injects when via is outside destination', () => {
+      expect(decideSid64Route('240f:2033::/64', '203::44', '203::22').decision).toBe('inject');
+    });
+  });
+
+  describe('formatPairedEndpointNotes', () => {
+    it('dedupes identical PE-A and PE-B reasons', () => {
+      expect(formatPairedEndpointNotes('同一原因', '同一原因')).toBe('PE-A：同一原因\nPE-B：同 PE-A');
+    });
+
+    it('keeps distinct reasons', () => {
+      expect(formatPairedEndpointNotes('A因', 'B因')).toBe('PE-A：A因\nPE-B：B因');
     });
   });
 });

@@ -80,6 +80,20 @@ describe('hubPeInventory', () => {
     expect(inv.wan[0].id).toBe('w-existing');
   });
 
+  it('attachHubInventoryToConfig mutates cfg in place so callers can ignore return', () => {
+    const inv = emptyHubInventory();
+    inv.wan.push({
+      id: 'w1',
+      ifName: 'ge0',
+      ipv6: '2001::1/64',
+      source: 'role_wizard',
+      createdAt: '2026-01-01',
+    });
+    const cfg: Record<string, unknown> = { bgp: [] };
+    attachHubInventoryToConfig(cfg, inv);
+    expect(cfg[TOWER_HUB_INVENTORY_KEY]).toEqual(inv);
+  });
+
   it('parseHubInventoryFromConfig and stripTowerExtensionsFromDeviceConfig', () => {
     const inv = emptyHubInventory();
     inv.wan.push({
@@ -98,6 +112,42 @@ describe('hubPeInventory', () => {
     expect(stripped.bgp).toEqual([]);
     expect(stripped[TOWER_HUB_INVENTORY_KEY]).toBeUndefined();
     expect(stripped.ipv6_route).toEqual([{ destination: '::/0', via: '203::33' }]);
+  });
+
+  it('hubInventoryToPeWizardForm fills missing ipv4 dest from publicConfig', () => {
+    const inv = emptyHubInventory();
+    inv.wan.push({
+      id: 'w-wiz',
+      ifName: 'GigabitEthernet 0/8/0',
+      ipv6: '2100::2/64',
+      source: 'role_wizard',
+      createdAt: '2026-01-01',
+    });
+    const cfg = attachHubInventoryToConfig({}, inv);
+    const form = hubInventoryToPeWizardForm(cfg, {
+      wanDev: 'GigabitEthernet 0/8/0',
+      ipv4RouteDest: '20.2.2.100/32',
+      ipv4RoutePriority: 100,
+    });
+    expect(form.hubWanInventory[0].ipv4RouteDest).toBe('20.2.2.100/32');
+    expect(form.hubWanInventory[0].ipv4RoutePriority).toBe(100);
+  });
+
+  it('hubInventoryToPeWizardForm falls back to device_baseline WAN when role_wizard empty', () => {
+    const inv = emptyHubInventory();
+    inv.wan.push({
+      id: 'w-baseline',
+      ifName: 'GigabitEthernet 0/8/0',
+      ipv6: '2100::2/64',
+      ipv4RouteDest: '20.2.2.100/32',
+      source: 'device_baseline',
+      createdAt: '2026-01-01',
+    });
+    const cfg = attachHubInventoryToConfig({}, inv);
+    const form = hubInventoryToPeWizardForm(cfg);
+    expect(form.hubWanInventory).toHaveLength(1);
+    expect(form.hubWanInventory[0].ifName).toBe('GigabitEthernet 0/8/0');
+    expect(form.hubWanInventory[0].ipv4RouteDest).toBe('20.2.2.100/32');
   });
 
   it('hubInventoryToPeWizardForm restores only role_wizard rows', () => {

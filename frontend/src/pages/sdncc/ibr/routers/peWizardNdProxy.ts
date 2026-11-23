@@ -60,6 +60,12 @@ const IFACE_ARRAY_KEYS = [
   'subinterfaces_Tunnel',
 ] as const;
 
+const ifaceKey = (name: string): string =>
+  String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
 /** 隧道引用下的窄通道：只改现有 VR 配置上的 WAN ipv6_nd_proxy + pe.publicConfig 意图。 */
 export function patchVrConfigWanNdProxy(
   cfg: Record<string, unknown>,
@@ -131,6 +137,89 @@ export function validateWanNdProxyIntent(values: {
   return null;
 }
 
+const uniqueIfaceNames = (names: string[]): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names) {
+    const key = ifaceKey(n);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(String(n || '').trim());
+  }
+  return out;
+};
+
+export function collectExistingWanNdProxyIfNames(cfg: Record<string, unknown> | null | undefined): string[] {
+  if (!cfg || typeof cfg !== 'object') return [];
+  const pe =
+    cfg.pe && typeof cfg.pe === 'object' && !Array.isArray(cfg.pe)
+      ? (cfg.pe as Record<string, unknown>)
+      : {};
+  const publicConfig =
+    pe.publicConfig && typeof pe.publicConfig === 'object' && !Array.isArray(pe.publicConfig)
+      ? (pe.publicConfig as Record<string, unknown>)
+      : {};
+  if (Array.isArray(publicConfig.wanNdProxyIfNames)) {
+    return uniqueIfaceNames(publicConfig.wanNdProxyIfNames.map((n) => String(n ?? '').trim()).filter(Boolean));
+  }
+  const fromIfaces: string[] = [];
+  for (const key of IFACE_ARRAY_KEYS) {
+    const arr = cfg[key];
+    if (!Array.isArray(arr)) continue;
+    for (const row of arr) {
+      if (!row || typeof row !== 'object') continue;
+      const rec = row as Record<string, unknown>;
+      if (!String(rec.ipv6_nd_proxy ?? '').trim()) continue;
+      const name = String(rec.name ?? '').trim();
+      if (name) fromIfaces.push(name);
+    }
+  }
+  if (fromIfaces.length) return uniqueIfaceNames(fromIfaces);
+  if (publicConfig.wanNdProxy) {
+    const wan = String(publicConfig.wanName || publicConfig.wanDev || '').trim();
+    return wan ? [wan] : [];
+  }
+  return [];
+}
+
+export function wanNdProxySelectionEqual(a: string[], b: string[]): boolean {
+  const norm = (xs: string[]) =>
+    [...new Set(xs.map((n) => ifaceKey(n)).filter(Boolean))].sort();
+  const left = norm(a);
+  const right = norm(b);
+  return left.length === right.length && left.every((x, i) => x === right[i]);
+}
+
+/** 隧道引用窄通道：勾选集合或代答地址相对现网是否真有变化 */
+export function wanNdProxyIntentDiffers(
+  cfg: Record<string, unknown> | null | undefined,
+  values: {
+    sidPrefix?: unknown;
+    wanNdProxy?: boolean;
+    wanDev?: string;
+    hubWanInventory?: Array<{ ifName?: string; ndProxy?: boolean }>;
+  },
+): boolean {
+  const want = collectWanNdProxyIfNames(values);
+  const have = collectExistingWanNdProxyIfNames(cfg);
+  if (!wanNdProxySelectionEqual(want, have)) return true;
+  if (!want.length) return false;
+  const wantHost = ndProxySidHostFromPrefix(values.sidPrefix);
+  const root = cfg && typeof cfg === 'object' ? cfg : {};
+  for (const key of IFACE_ARRAY_KEYS) {
+    const arr = root[key];
+    if (!Array.isArray(arr)) continue;
+    for (const row of arr) {
+      if (!row || typeof row !== 'object') continue;
+      const rec = row as Record<string, unknown>;
+      const name = String(rec.name ?? '').trim();
+      if (!wanNdProxyEnabledOn(name, want)) continue;
+      if (String(rec.ipv6_nd_proxy ?? '').trim() !== wantHost) return true;
+    }
+  }
+  return false;
+}
+
 export function collectWanNdProxyIfNames(values: {
   wanNdProxy?: boolean;
   wanDev?: string;
@@ -148,12 +237,6 @@ export function collectWanNdProxyIfNames(values: {
   const wan = String(values.wanDev || '').trim();
   return values.wanNdProxy && wan ? [wan] : [];
 }
-
-const ifaceKey = (name: string): string =>
-  String(name || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
 
 export function wanNdProxyEnabledOn(ifName: string, proxyIfNames: unknown): boolean {
   const want = ifaceKey(ifName);

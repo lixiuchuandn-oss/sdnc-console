@@ -33,6 +33,56 @@ export function normalizePeWizardIpv4RoutePriority(raw: unknown, fallback = 100)
   return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : fallback;
 }
 
+export const normWanIfKey = (v: unknown) =>
+  String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+/** GigabitEthernet 0/7/0 与 GigabitEthernet0/7/0 视为同一口 */
+export function wanIfNamesMatch(a: unknown, b: unknown): boolean {
+  const left = normWanIfKey(a);
+  const right = normWanIfKey(b);
+  if (!left || !right) return false;
+  return left === right || left.replace(/\s/g, '') === right.replace(/\s/g, '');
+}
+
+const roleText = (v: unknown) => String(v ?? '').trim();
+
+/**
+ * 从设备 ipv4_route 回填本 WAN：优先 dest+dev，其次规范化口名，再次仅 dest（设备未带回 `dev`）。
+ * allowSingle：仅一条路由时直接展示，避免 Hub 重进因缺 `dev` 空白。
+ */
+export function pickIpv4RouteForWan(
+  routes: unknown[] | undefined,
+  wanName: string,
+  roleDest?: unknown,
+  rolePriority?: unknown,
+  allowSingle = false,
+): Record<string, unknown> | undefined {
+  const list = Array.isArray(routes)
+    ? routes.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && !Array.isArray(r))
+    : [];
+  const name = roleText(wanName);
+  const dest = roleText(roleDest);
+  if (!name && !dest) return undefined;
+
+  const onDev = name ? list.filter((r) => wanIfNamesMatch(r.dev, name)) : [];
+  if (dest) {
+    const byDestOnDev = onDev.find((r) => roleText(r.destination) === dest);
+    if (byDestOnDev) return byDestOnDev;
+    const byDest = list.find((r) => roleText(r.destination) === dest);
+    if (byDest) return byDest;
+  }
+  if (onDev.length) return onDev[0];
+  if (dest) return undefined;
+  if (allowSingle && list.length === 1) return list[0];
+  if (rolePriority == null) return undefined;
+  const withoutDev = list.filter((r) => !roleText(r.dev));
+  if (withoutDev.length === 1) return withoutDev[0];
+  return undefined;
+}
+
 export function buildWanStaticRoutesFromRows(rows: WanRouteFormRow[]): {
   ipv4_route: Array<{ destination: string; dev: string; priority: number }>;
   ipv6_route: Array<{ destination: string; via?: string }>;
@@ -102,23 +152,41 @@ export function sanitizeIpv6RoutesForDevice<T extends Record<string, unknown>>(c
   } as T;
 }
 
-/** 从设备 config 回填 Hub WAN 行静态路由（ipv4 按 dev；ipv6 按序与 ipv4/WAN 行对齐） */
+/** 从设备 config 回填 Hub WAN 行静态路由（ipv4 按口名/目的；ipv6 按序与 ipv4/WAN 行对齐） */
 export function enrichHubWanRowsFromDeviceRoutes<T extends WanRouteFormRow>(
   rows: T[],
   cfg: { ipv4_route?: unknown; ipv6_route?: unknown },
 ): T[] {
   const ipv4List = Array.isArray(cfg.ipv4_route) ? cfg.ipv4_route : [];
   const ipv6List = Array.isArray(cfg.ipv6_route) ? cfg.ipv6_route : [];
+  const usedV4 = new Set<number>();
   const usedV6 = new Set<number>();
 
-  return rows.map((row) => {
+  return rows.map((row, rowIdx) => {
     const ifName = String(row.ifName ?? '').trim();
     if (!ifName) return row;
     const next = { ...row };
 
-    const v4 = ipv4List.find(
-      (r) => r && typeof r === 'object' && String((r as Record<string, unknown>).dev ?? '').trim() === ifName,
-    ) as Record<string, unknown> | undefined;
+    let v4 = pickIpv4RouteForWan(
+      ipv4List,
+      ifName,
+      next.ipv4RouteDest,
+      next.ipv4RoutePriority,
+      rows.length === 1,
+    );
+    if (!v4) {
+      const idx = ipv4List.findIndex((r, i) => {
+        if (usedV4.has(i) || !r || typeof r !== 'object') return false;
+        const dev = String((r as Record<string, unknown>).dev ?? '').trim();
+        if (dev) return wanIfNamesMatch(dev, ifName);
+        return rows.length > 1 && i === rowIdx;
+      });
+      if (idx >= 0) v4 = ipv4List[idx] as Record<string, unknown>;
+    }
+    if (v4) {
+      const hitIdx = ipv4List.findIndex((r) => r === v4);
+      if (hitIdx >= 0) usedV4.add(hitIdx);
+    }
     if (v4?.destination && !next.ipv4RouteDest) {
       next.ipv4RouteDest = String(v4.destination);
       if (v4.priority !== undefined && v4.priority !== null && next.ipv4RoutePriority == null) {
@@ -144,7 +212,7 @@ export function enrichHubWanRowsFromDeviceRoutes<T extends WanRouteFormRow>(
       if (usedV6.has(i) || !r || typeof r !== 'object') return false;
       const rowObj = r as Record<string, unknown>;
       const dev = String(rowObj.dev ?? '').trim();
-      if (dev) return dev === ifName;
+      if (dev) return wanIfNamesMatch(dev, ifName);
       return false;
     });
     if (v6Idx < 0 && ipv6List.length === 1 && rows.length === 1) {
@@ -193,11 +261,7 @@ export function buildHubWanMirrorRowsFromDevice(
   return enrichHubWanRowsFromDeviceRoutes(rows, cfg);
 }
 
-const normWanIfKey = (v: unknown) =>
-  String(v ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
+const wanIfLookupKey = (v: unknown) => normWanIfKey(v).replace(/\s/g, '');
 
 /**
  * 再次进入 HUB_PE 向导：已保存 inventory 行与设备公网口列表对齐，避免编辑区 WAN Tab 少于 Mirror。
@@ -210,7 +274,7 @@ export function mergeHubWanFormRowsForWizard(
   const device = Array.isArray(deviceRows) ? deviceRows : [];
   const savedByIf = new Map<string, WanRouteFormRow>();
   saved.forEach((row) => {
-    const key = normWanIfKey(row.ifName);
+    const key = wanIfLookupKey(row.ifName);
     if (key) savedByIf.set(key, { ...row });
   });
 
@@ -222,7 +286,7 @@ export function mergeHubWanFormRowsForWizard(
   const seen = new Set<string>();
 
   for (const devRow of device) {
-    const key = normWanIfKey(devRow.ifName);
+    const key = wanIfLookupKey(devRow.ifName);
     if (!key) continue;
     const hit = savedByIf.get(key);
     merged.push({
@@ -239,7 +303,7 @@ export function mergeHubWanFormRowsForWizard(
   }
 
   saved.forEach((row) => {
-    const key = normWanIfKey(row.ifName);
+    const key = wanIfLookupKey(row.ifName);
     if (key && !seen.has(key)) {
       merged.push(row);
       seen.add(key);

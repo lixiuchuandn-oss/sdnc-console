@@ -12,7 +12,14 @@ import IbrWizardPage from '../lib/IbrWizardPage';
 import IbrWizardStepPane from '../lib/IbrWizardStepPane';
 import { useIbrDeployWizard } from '../lib/useIbrDeployWizard';
 import { filterLinkLocalIpv6 } from '../routers/vrIpv6Utils';
-import { buildSrv6PeerRouteDestination, resolveSid64Via, validateSid64NextHop } from './srv6Ipv6';
+import {
+  buildSrv6PeerRouteDestination,
+  decideSid64Route,
+  formatPairedEndpointNotes,
+  formatSid64InjectPlanNote,
+  resolveSid64Via,
+  type Sid64InjectPlan,
+} from './srv6Ipv6';
 import {
   buildSrv6RdRtMetaFromPeEndpoints,
   extractRdRtFromPeConfigForVrf,
@@ -713,22 +720,31 @@ const SRv6CreatePage: React.FC = () => {
    * 去重策略：对相同 via 且不带 vrf 的 IPv6 路由只保留本次注入的一条；
    * 对相同 vrf 且 destination 为 ::/0 的条目也只保留一条。
    */
-  const injectIpv6RouteTop = (cfg: any, destination?: string, via?: string, vrf?: number | string): any => {
-    if (!destination || !via) return cfg;
+  const injectIpv6RouteTop = (
+    cfg: any,
+    destination?: string,
+    via?: string,
+    vrf?: number | string,
+    opts?: { omitSid?: boolean },
+  ): any => {
+    const omitSid = !!opts?.omitSid;
+    if (!omitSid && (!destination || !via)) return cfg;
+    if (omitSid && vrf === undefined) return cfg;
     try {
       const cloned = JSON.parse(JSON.stringify(cfg || {}));
       const arr = Array.isArray((cloned as any).ipv6_route) ? (cloned as any).ipv6_route : [];
       const vrfKey = (v: any) => String(v ?? '');
-      // 去重：去掉同 via、不带 vrf 的旧 IPv6 路由（避免公网侧重复）
-      const filtered = arr.filter((r: any) => {
-        const dest = String(r?.destination || '');
-        if (!dest.includes(':')) return true;
-        if (String(r?.via || '') !== String(via)) return true;
-        if (vrfKey(r?.vrf) !== '') return true; // 保留带 vrf 的条目
-        return false;
-      });
-      // 条目 1：对端 SID 网段路由，不带 vrf，走公网转发
-      filtered.push({ destination, via });
+      let filtered = arr;
+      if (!omitSid) {
+        filtered = arr.filter((r: any) => {
+          const dest = String(r?.destination || '');
+          if (!dest.includes(':')) return true;
+          if (String(r?.via || '') !== String(via)) return true;
+          if (vrfKey(r?.vrf) !== '') return true;
+          return false;
+        });
+        filtered.push({ destination, via });
+      }
       // 条目 2：VRF 默认路由，带 vrf，via 固定为 nexthop-vrf 0
       if (vrf !== undefined) {
         // 去重：去掉同 vrf 下已有的 ::/0 默认路由
@@ -1668,7 +1684,7 @@ const SRv6CreatePage: React.FC = () => {
   /** 公共 PE 注入逻辑：PE-PE 邻居 + PE-CE 邻居 + RD/RT + 两条 IPv6 路由（SID/64 + VRF ::/0） */
   const buildInjectedPeConfig = (
     selfKey: 'peA' | 'peB',
-  ): { preview: any; storage: any; sid64Error?: string } => {
+  ): { preview: any; storage: any; sid64Error?: string; sid64Skip?: string; injectPlan?: Sid64InjectPlan } => {
     const selfCfg = peConfigs[selfKey];
     const peerKey = selfKey === 'peA' ? 'peB' : 'peA';
     const peerCfg = peConfigs[peerKey];
@@ -1725,16 +1741,44 @@ const SRv6CreatePage: React.FC = () => {
     const srv6PeerDest = buildSrv6PeerRouteDestination(peerPrefix);
     const sid64WanIf = topo === 'H' && hubSlot && selfKey === hubSlot ? hubWanIf : undefined;
     const via = peerCfg ? resolveSid64Via(selfCfg, peerCfg, sid64WanIf) : undefined;
+    const localWanIp = sid64WanIf
+      ? extractInterfaceIpv6ByName(selfCfg, sid64WanIf) ?? extractPortIpv6(selfCfg, 0)
+      : extractPortIpv6(selfCfg, 0);
     let sid64Error: string | undefined;
+    let sid64Skip: string | undefined;
+    let sidDecision: Sid64InjectPlan['sidDecision'];
     if (c && srv6PeerDest && via && vrf !== undefined) {
-      sid64Error = validateSid64NextHop(srv6PeerDest, via);
-      if (!sid64Error) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+      const decided = decideSid64Route(srv6PeerDest, via, localWanIp);
+      sidDecision = decided.decision;
+      if (decided.decision === 'invalid') {
+        sid64Error = decided.message;
+      } else if (decided.decision === 'skip_onlink') {
+        sid64Skip = decided.message;
+        c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf, { omitSid: true });
+      } else {
+        c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+      }
     }
+
+    const injectPlan: Sid64InjectPlan | undefined =
+      srv6PeerDest && via
+        ? {
+            sid: { destination: srv6PeerDest, via },
+            sidDecision,
+            ...(vrf !== undefined
+              ? { vrfDefault: { destination: '::/0', vrf, via: 'nexthop-vrf 0' } }
+              : {}),
+          }
+        : vrf !== undefined
+          ? { vrfDefault: { destination: '::/0', vrf, via: 'nexthop-vrf 0' } }
+          : undefined;
 
     return {
       preview: c ? sanitizeForDevice(c) : null,
       storage: c ? buildPeConfigForPlatformStorage(c) : null,
       sid64Error,
+      sid64Skip,
+      injectPlan,
     };
   };
 
@@ -1748,9 +1792,12 @@ const SRv6CreatePage: React.FC = () => {
   const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues, inferredTopology, inferredHubPeSlot, rrDomains]);
   const peBPreviewCfg = peBInjected.preview;
   const peBPreviewStorageCfg = peBInjected.storage;
-  const sid64BlockError = [peAInjected.sid64Error && `PE-A：${peAInjected.sid64Error}`, peBInjected.sid64Error && `PE-B：${peBInjected.sid64Error}`]
-    .filter(Boolean)
-    .join('\n') || undefined;
+  const sid64BlockError = formatPairedEndpointNotes(peAInjected.sid64Error, peBInjected.sid64Error);
+  const sid64SkipNote = formatPairedEndpointNotes(peAInjected.sid64Skip, peBInjected.sid64Skip);
+  const sid64InjectNote = formatPairedEndpointNotes(
+    formatSid64InjectPlanNote(peAInjected.injectPlan),
+    formatSid64InjectPlanNote(peBInjected.injectPlan),
+  );
 
   // CE 预览：仅注入 PE 内网 neighbor（与 ce2 一致：无 RD/RT、无 neighbor_disable_connected_check）
   const ceAPreviewCfg = useMemo(() => {
@@ -2396,6 +2443,24 @@ const SRv6CreatePage: React.FC = () => {
       };
       return wizardStepShell(
         <>
+          {sid64BlockError ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={editId ? '无法保存隧道' : '无法创建隧道'}
+              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64BlockError}</span>}
+            />
+          ) : null}
+          {sid64SkipNote ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="已省略 SID 静态路由"
+              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64SkipNote}</span>}
+            />
+          ) : null}
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="隧道名称">{form.getFieldValue('tunnelName') || '-'}</Descriptions.Item>
             <Descriptions.Item label="隧道类型">{tunnelLinkTypeLabel(tunnelLinkType)}</Descriptions.Item>
@@ -2455,6 +2520,16 @@ const SRv6CreatePage: React.FC = () => {
             <Descriptions.Item label="PE-B RD">{rdRtMeta?.rdMap?.peB || '-'}</Descriptions.Item>
           </Descriptions>
 
+          {sid64InjectNote ? (
+            <Alert
+              type={sid64BlockError ? 'warning' : 'info'}
+              showIcon
+              style={{ marginTop: 12, marginBottom: 12 }}
+              message="隧道创建时向 PE 注入的 IPv6 路由（不在上方基准信息中）"
+              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64InjectNote}</span>}
+            />
+          ) : null}
+
           {!rdRtMeta || validateSrv6RdRtMeta(rdRtMeta) ? (
             <Alert
               type="warning"
@@ -2470,24 +2545,6 @@ const SRv6CreatePage: React.FC = () => {
               description="取值来自 PE 角色向导已写入的 LAN BGP（所选内网 VRF）。如需修改请前往对应 PE 的角色配置向导。"
             />
           )}
-
-          {sid64BlockError ? (
-            <Alert
-              type="error"
-              showIcon
-              message={editId ? '无法保存隧道' : '无法创建隧道'}
-              description={sid64BlockError}
-            />
-          ) : null}
-
-          <Alert
-            type="info"
-            showIcon
-            message="保存说明"
-            description={
-              '请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到所选设备。'
-            }
-          />
         </>,
       );
     }

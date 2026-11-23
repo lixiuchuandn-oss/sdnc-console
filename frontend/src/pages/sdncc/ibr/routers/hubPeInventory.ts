@@ -66,6 +66,48 @@ export type HubLanFormRow = {
   routeTarget?: string;
 };
 
+type HubPeLegacyWanFields = {
+  wanDev?: string;
+  wanIpv4?: string;
+  wanIpv6?: string;
+  ipv4RouteDest?: string;
+  ipv4RoutePriority?: number;
+  ipv6Dest?: string;
+  ipv6Via?: string;
+  lanConfigs?: HubLanFormRow[];
+};
+
+/** inventory 缺静态路由字段时，用 publicConfig 首 WAN 补回 */
+const applyLegacyWanRouteFallback = (
+  rows: HubWanFormRow[],
+  legacyPe?: HubPeLegacyWanFields,
+): HubWanFormRow[] => {
+  if (!legacyPe || !rows.length) return rows;
+  const targetIdx = rows.findIndex((r) => normIf(r.ifName) && normIf(r.ifName) === normIf(legacyPe.wanDev));
+  const idx = targetIdx >= 0 ? targetIdx : 0;
+  const row = { ...rows[idx] };
+  if (!String(row.ipv4RouteDest ?? '').trim() && legacyPe.ipv4RouteDest) {
+    row.ipv4RouteDest = String(legacyPe.ipv4RouteDest).trim();
+  }
+  if (
+    (row.ipv4RoutePriority === undefined || row.ipv4RoutePriority === null) &&
+    legacyPe.ipv4RoutePriority != null
+  ) {
+    row.ipv4RoutePriority = Number(legacyPe.ipv4RoutePriority);
+  }
+  if (!String(row.ipv6Dest ?? '').trim() && legacyPe.ipv6Dest) {
+    row.ipv6Dest = String(legacyPe.ipv6Dest).trim();
+  }
+  if (!String(row.ipv6Via ?? '').trim() && legacyPe.ipv6Via) {
+    row.ipv6Via = String(legacyPe.ipv6Via).trim();
+  }
+  if (!String(row.ipv4 ?? '').trim() && legacyPe.wanIpv4) row.ipv4 = legacyPe.wanIpv4;
+  if (!String(row.ipv6 ?? '').trim() && legacyPe.wanIpv6) row.ipv6 = legacyPe.wanIpv6;
+  const next = [...rows];
+  next[idx] = row;
+  return next;
+};
+
 const normIf = (v: unknown) => String(v ?? '').trim();
 const newId = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
@@ -196,30 +238,29 @@ export const buildHubInventoryFromPeWizardValues = (
   };
 };
 
+/** 就地挂上 inventory 并返回同一 cfg（调用方勿丢弃返回值；也兼容 `cfg = attach(...)`） */
 export const attachHubInventoryToConfig = (
   cfg: Record<string, unknown>,
   inventory: HubInventory,
-): Record<string, unknown> => ({
-  ...cfg,
-  [TOWER_HUB_INVENTORY_KEY]: inventory,
-});
+): Record<string, unknown> => {
+  cfg[TOWER_HUB_INVENTORY_KEY] = inventory;
+  return cfg;
+};
 
 /** 从已保存配置还原 HUB_PE 向导表单字段 */
 export const hubInventoryToPeWizardForm = (
   cfg: unknown,
-  legacyPe?: {
-    wanDev?: string;
-    wanIpv4?: string;
-    wanIpv6?: string;
-    lanConfigs?: HubLanFormRow[];
-  },
+  legacyPe?: HubPeLegacyWanFields,
 ): { hubWanInventory: HubWanFormRow[]; lanConfigs: HubLanFormRow[] } => {
   const inv = parseHubInventoryFromConfig(cfg);
   if (inv && (inv.wan.length || inv.lan.length)) {
+    const wizardWan = inv.wan.filter((w) => w.source === 'role_wizard');
+    const wanSrc = wizardWan.length ? wizardWan : inv.wan;
+    const wizardLan = inv.lan.filter((l) => l.source === 'role_wizard');
+    const lanSrc = wizardLan.length ? wizardLan : inv.lan;
     return {
-      hubWanInventory: inv.wan
-        .filter((w) => w.source === 'role_wizard')
-        .map((w) => ({
+      hubWanInventory: applyLegacyWanRouteFallback(
+        wanSrc.map((w) => ({
           id: w.id,
           ifName: w.ifName,
           ipv4: w.ipv4,
@@ -229,23 +270,36 @@ export const hubInventoryToPeWizardForm = (
           ipv6Dest: w.ipv6Dest,
           ipv6Via: w.ipv6Via,
         })),
-      lanConfigs: inv.lan
-        .filter((l) => l.source === 'role_wizard')
-        .map((l) => ({
-          id: l.id,
-          ifName: l.ifName,
-          vrf: l.vrf,
-          ipv4: l.ipv4,
-          ipv6: l.ipv6,
-          asn: l.privateAsn,
-          routerId: l.routerId,
-          routeDistinguisher: l.routeDistinguisher,
-          routeTarget: l.routeTarget,
-        })),
+        legacyPe,
+      ),
+      lanConfigs: lanSrc.map((l) => ({
+        id: l.id,
+        ifName: l.ifName,
+        vrf: l.vrf,
+        ipv4: l.ipv4,
+        ipv6: l.ipv6,
+        asn: l.privateAsn,
+        routerId: l.routerId,
+        routeDistinguisher: l.routeDistinguisher,
+        routeTarget: l.routeTarget,
+      })),
     };
   }
   const hubWanInventory: HubWanFormRow[] = legacyPe?.wanDev
-    ? [{ ifName: legacyPe.wanDev, ipv4: legacyPe.wanIpv4, ipv6: legacyPe.wanIpv6 }]
+    ? applyLegacyWanRouteFallback(
+        [
+          {
+            ifName: legacyPe.wanDev,
+            ipv4: legacyPe.wanIpv4,
+            ipv6: legacyPe.wanIpv6,
+            ipv4RouteDest: legacyPe.ipv4RouteDest,
+            ipv4RoutePriority: legacyPe.ipv4RoutePriority,
+            ipv6Dest: legacyPe.ipv6Dest,
+            ipv6Via: legacyPe.ipv6Via,
+          },
+        ],
+        legacyPe,
+      )
     : [{}];
   return {
     hubWanInventory,

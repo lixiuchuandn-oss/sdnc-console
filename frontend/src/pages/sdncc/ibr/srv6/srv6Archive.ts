@@ -1,7 +1,7 @@
 /**
  * SRv6 隧道「关系档案」：与后端 srv6Tunnel.types / POST|PUT 载荷对齐。
  */
-import { assertValidSid64NextHop, buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
+import { decideSid64Route, buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
 import type { Srv6CeHaBinding } from './srv6CeHaGroupLib';
 import {
   buildRrNeighborTargetsFromDomain,
@@ -562,11 +562,19 @@ const buildPeInjectedDelta = (
           hubCtx.hubBindings?.wanIf
         : undefined;
     const via = resolveSid64Via(selfCfg, peerCfg, sid64WanIf);
+    const localWanIp = sid64WanIf
+      ? extractInterfaceIpv6(selfCfg, sid64WanIf) ?? extractPortIpv6(selfCfg, 0)
+      : extractPortIpv6(selfCfg, 0);
     if (dest && via) {
-      assertValidSid64NextHop(dest, via);
+      const decided = decideSid64Route(dest, via, localWanIp);
+      if (decided.decision === 'invalid') {
+        throw new Error(decided.message);
+      }
+      const sidRows =
+        decided.decision === 'inject' ? [{ destination: dest, via }] : [];
       delta.ipv6Routes = [
         ...(delta.ipv6Routes || []),
-        { destination: dest, via },
+        ...sidRows,
         { destination: '::/0', vrf, via: 'nexthop-vrf 0' },
       ];
     }
