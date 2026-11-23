@@ -275,5 +275,10 @@ export const mergeBaselineWithContributions = (
     mergeOneContribution(result, packed);
   }
   backfillPublicEbgpMultihop(result);
+  // 贡献可单独引入顶层 ipv6_route（基线直连场景常无此 key）。
+  // 生效配置必须显式带上 []，否则删末条隧道后「缺 key」在 srv6 下发 merge 会被当成保留设备旧路由。
+  if (!Array.isArray(result.ipv6_route)) {
+    result.ipv6_route = [];
+  }
   return result;
 };

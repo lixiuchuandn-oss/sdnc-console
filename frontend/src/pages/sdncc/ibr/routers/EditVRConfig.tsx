@@ -11,6 +11,7 @@ import {
   saveVRConfig,
 } from '../../../../services/virtualRouterApi';
 import LinedTextArea from './LinedTextArea';
+import { resolvedEnabledSectionValue, textAfterEnableListSection } from './expertSectionJson';
 
 const EditVRConfig: React.FC = () => {
   const navigate = useNavigate();
@@ -659,7 +660,10 @@ const EditVRConfig: React.FC = () => {
       if (!enabledSections[def.key]) continue; // 未启用则跳过
       const part = parseSection(def.key);
       if (part === null) return null; // 有错误直接中断
-      if (typeof part !== 'undefined') obj[def.key] = part;
+      const resolved = resolvedEnabledSectionValue(part, {
+        isList: Array.isArray(DEFAULT_TEMPLATE[def.key]),
+      });
+      if (typeof resolved !== 'undefined') obj[def.key] = resolved;
     }
     if (uuid) obj.uuid = uuid;
     return obj;
@@ -879,7 +883,15 @@ const EditVRConfig: React.FC = () => {
                                 <Switch
                                   size="small"
                                   checked={!!enabledSections[key]}
-                                  onChange={(checked) => setEnabledSections((prev) => ({ ...prev, [key]: checked }))}
+                                  onChange={(checked) => {
+                                    setEnabledSections((prev) => ({ ...prev, [key]: checked }));
+                                    if (checked && Array.isArray(DEFAULT_TEMPLATE[key])) {
+                                      setSections((prev) => ({
+                                        ...prev,
+                                        [key]: textAfterEnableListSection(prev[key]),
+                                      }));
+                                    }
+                                  }}
                                   checkedChildren="启用"
                                   unCheckedChildren="停用"
                                 />
@@ -901,7 +913,11 @@ const EditVRConfig: React.FC = () => {
                               onChange={(val) => setSectionText(key, val)}
                               minRows={6}
                               maxRows={24}
-                              placeholder={`填写 ${key} 的 JSON 结构（只要标识符和结构，不要具体的值）`}
+                              placeholder={
+                                Array.isArray(DEFAULT_TEMPLATE[key])
+                                  ? `填写 ${key} 的 JSON 数组；[] 表示清空该字段`
+                                  : `填写 ${key} 的 JSON 结构（只要标识符和结构，不要具体的值）`
+                              }
                             />
                           )}
                         </Form.Item>

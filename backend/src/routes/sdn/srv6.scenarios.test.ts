@@ -62,9 +62,9 @@ describe('srv6.scenarios (P1–P4 matrix)', () => {
       expect(effective.ipv4_route).toEqual(baseline.ipv4_route);
     });
 
-    it('S1.2 删除 T1：exclude 后 effective = baseline', () => {
+    it('S1.2 删除 T1：exclude 后 effective = baseline（ipv6_route 显式清空）', () => {
       const afterDelete = mergeBaselineWithContributions(baseline, []);
-      expect(afterDelete).toEqual(baseline);
+      expect(afterDelete).toEqual({ ...baseline, ipv6_route: [] });
       expect((afterDelete.bgp as unknown[])[0]).not.toHaveProperty('neighbor');
     });
 
@@ -172,7 +172,9 @@ describe('srv6.scenarios (P1–P4 matrix)', () => {
         spokeContrib('ghost', '203::55', '10.5.5.5', 1, '429:5'),
       ]);
       expect(JSON.stringify(drifted)).not.toBe(JSON.stringify(baseline));
-      expect(JSON.stringify(mergeBaselineWithContributions(baseline, []))).toBe(JSON.stringify(baseline));
+      expect(JSON.stringify(mergeBaselineWithContributions(baseline, []))).toBe(
+        JSON.stringify({ ...baseline, ipv6_route: [] }),
+      );
     });
 
     it('S4.2 漂移修复目标态 = merge(baseline, aliveContribs)', () => {
@@ -192,8 +194,11 @@ describe('srv6.scenarios (P1–P4 matrix)', () => {
       expect((pub.neighbor as unknown[]).length).toBe(1);
     });
 
-    it('S5.2 空贡献列表不改变 baseline', () => {
-      expect(mergeBaselineWithContributions(hubBaseline, [])).toEqual(hubBaseline);
+    it('S5.2 空贡献列表仅规范化空 ipv6_route', () => {
+      expect(mergeBaselineWithContributions(hubBaseline, [])).toEqual({
+        ...hubBaseline,
+        ipv6_route: [],
+      });
     });
 
     it('S5.3 CE 端仅 neighbor 增量', () => {

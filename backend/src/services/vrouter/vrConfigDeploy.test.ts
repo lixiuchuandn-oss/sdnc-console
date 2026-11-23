@@ -59,6 +59,63 @@ describe('vrConfigDeploy', () => {
     expect(merged).not.toHaveProperty('_towerHubInventory');
   });
 
+  it('merge srv6 clears device ipv6_route when platform omits the key (last-tunnel delete)', () => {
+    const device = {
+      bgp: [{ asn: 429, address_family: [] }],
+      ipv6_route: [
+        { destination: '2100::/64', via: '2100::100' },
+        { destination: '::/0', vrf: 9999, via: 'nexthop-vrf 0' },
+      ],
+      acl: [{ acl_id: 1 }],
+    };
+    // 直连基线 recompute：无 ipv6_route key（历史路径）或显式 []
+    const platformAbsent = { bgp: [{ asn: 429, address_family: [] }] };
+    const mergedAbsent = mergeDeviceWithPlatformSlice(device, platformAbsent, 'srv6');
+    expect(mergedAbsent.ipv6_route).toEqual([]);
+    expect(mergedAbsent.acl).toEqual(device.acl);
+
+    const platformEmpty = { bgp: [{ asn: 429, address_family: [] }], ipv6_route: [] };
+    const mergedEmpty = mergeDeviceWithPlatformSlice(device, platformEmpty, 'srv6');
+    expect(mergedEmpty.ipv6_route).toEqual([]);
+  });
+
+  it('detectDeployDrift flags leftover ipv6_route when platform omits the key', () => {
+    const device = {
+      bgp: [{ asn: 429, address_family: [] }],
+      ipv6_route: [
+        { destination: '2100::/64', via: '2100::100' },
+        { destination: '::/0', vrf: 9999, via: 'nexthop-vrf 0' },
+      ],
+    };
+    const platform = { bgp: [{ asn: 429, address_family: [] }] };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    const ipv6 = conflicts.filter((c) => c.key === 'ipv6_route');
+    expect(ipv6).toHaveLength(1);
+    expect(ipv6[0].kind).toBe('DOMAIN_OVERWRITE');
+    expect(getBlockingDriftConflicts(conflicts).some((c) => c.key === 'ipv6_route')).toBe(true);
+  });
+
+  it('detectDeployDrift does not flag ipv6_route when device and platform both lack it', () => {
+    const device = { bgp: [{ asn: 429, address_family: [] }] };
+    const platform = { bgp: [{ asn: 429, address_family: [] }] };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    expect(conflicts.some((c) => c.key === 'ipv6_route')).toBe(false);
+  });
+
+  it('merge srv6 keeps baseline wan ipv6_route when platform still has them after delete', () => {
+    const wanRoute = { destination: '::/0', via: '240e::1' };
+    const device = {
+      bgp: [{ asn: 429 }],
+      ipv6_route: [wanRoute, { destination: '2100::/64', via: '2100::100' }],
+    };
+    const platform = {
+      bgp: [{ asn: 429 }],
+      ipv6_route: [wanRoute],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    expect(merged.ipv6_route).toEqual([wanRoute]);
+  });
+
   it('merge srv6 keeps device interface vrrp when platform interfaces omit it', () => {
     const deviceVrrp = [{ vrid: 1, priority: 200, virtual_ipaddress: ['11.1.1.100/24'] }];
     const device = {

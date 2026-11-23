@@ -60,10 +60,10 @@ const pe22PeAContrib: Srv6EndpointInjectedDelta = {
 };
 
 describe('srv6.merge', () => {
-  it('M1: baseline only equals baseline', () => {
+  it('M1: baseline only equals baseline (empty ipv6_route normalized)', () => {
     const out = mergeBaselineWithContributions(pe22Baseline, []);
-    expect(out).toEqual(pe22Baseline);
-    expect(out.ipv6_route).toBeUndefined();
+    expect(out).toEqual({ ...pe22Baseline, ipv6_route: [] });
+    expect(out.ipv6_route).toEqual([]);
     expect((out.bgp as unknown[])[0]).not.toHaveProperty('neighbor');
   });
 
@@ -96,12 +96,17 @@ describe('srv6.merge', () => {
     expect(out.segment_routing_srv6).toEqual(pe22Baseline.segment_routing_srv6);
   });
 
-  it('M3 / PE22: delete recompute (exclude tunnel) restores baseline', () => {
+  it('M3 / PE22: delete recompute (exclude tunnel) restores baseline + clears ipv6_route', () => {
     const withTunnel = mergeBaselineWithContributions(pe22Baseline, [pe22PeAContrib]);
-    expect(withTunnel.ipv6_route).toBeDefined();
+    expect(withTunnel.ipv6_route).toEqual([
+      { destination: '240f:2033::/64', via: '203::33' },
+      { destination: '::/0', vrf: 9999, via: 'nexthop-vrf 0' },
+    ]);
 
     const afterDelete = mergeBaselineWithContributions(pe22Baseline, []);
-    expect(afterDelete).toEqual(pe22Baseline);
+    // 直连基线无 ipv6_route：删末条后须显式 []，供下发清空设备 SID/64 与 VRF ::/0
+    expect(afterDelete).toEqual({ ...pe22Baseline, ipv6_route: [] });
+    expect(afterDelete.ipv6_route).toEqual([]);
 
     const pubBgp = (afterDelete.bgp as Record<string, unknown>[])[0];
     expect(pubBgp.neighbor).toBeUndefined();
@@ -110,6 +115,29 @@ describe('srv6.merge', () => {
     expect(uniAf.route_distinguisher).toBeUndefined();
     expect(uniAf.route_target).toBeUndefined();
     expect(innerBgp.neighbor).toBeUndefined();
+  });
+
+  it('M3b: last-tunnel delete keeps baseline WAN ipv6_route (not wipe to [])', () => {
+    const wan = { destination: '::/0', via: '240e::1' };
+    const baseline = { ...pe22Baseline, ipv6_route: [wan] };
+    const withTunnel = mergeBaselineWithContributions(baseline, [pe22PeAContrib]);
+    expect(withTunnel.ipv6_route).toEqual([
+      wan,
+      { destination: '240f:2033::/64', via: '203::33' },
+      { destination: '::/0', vrf: 9999, via: 'nexthop-vrf 0' },
+    ]);
+    const afterDelete = mergeBaselineWithContributions(baseline, []);
+    expect(afterDelete.ipv6_route).toEqual([wan]);
+  });
+
+  it('M3c: identical SID route already in baseline is not duplicated', () => {
+    const sid = { destination: '240f:2033::/64', via: '203::33' };
+    const baseline = { ...pe22Baseline, ipv6_route: [sid] };
+    const out = mergeBaselineWithContributions(baseline, [pe22PeAContrib]);
+    const sidRows = (out.ipv6_route as Record<string, unknown>[]).filter(
+      (r) => r.destination === sid.destination && r.via === sid.via && r.vrf == null,
+    );
+    expect(sidRows).toHaveLength(1);
   });
 
   it('CE contribution merges inner neighbor only', () => {

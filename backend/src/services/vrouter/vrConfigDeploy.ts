@@ -19,6 +19,16 @@ const OTHER_FEATURE_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec', 
 /** 平台库滞后提示：VRRP 由 HA 组管理，不提示为「滞后」 */
 const SRV6_STALE_HINT_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec']);
 
+/**
+ * SRv6 隧道贡献可单独「长出」的顶层 key（基线未必有）。
+ * 平台意图缺省这些 key 时必须显式清空设备，禁止「缺 key = 保留设备」。
+ * 目前仅 ipv6_route（SID/64 + VRF ::/0）；其它贡献项挂在基线已有的 bgp 下，整 key 覆盖即可回退。
+ */
+export const SRV6_CONTRIBUTION_INTRODUCED_TOP_KEYS: ReadonlyArray<{
+  key: string;
+  empty: unknown;
+}> = [{ key: 'ipv6_route', empty: [] }];
+
 /** NAT 域仅同步平台管理的 nat_address_group */
 const NAT_SLICE_KEYS = ['nat_address_group'] as const;
 
@@ -265,6 +275,12 @@ export const mergeDeviceWithPlatformSlice = (
       if (META_KEYS.has(key) || OTHER_FEATURE_KEYS.has(key)) continue;
       result[key] = deepClone(value);
     }
+    // 兜底：意图未带贡献引入型顶层 key（历史路径 / 旧账本）时仍清空设备残留
+    for (const { key, empty } of SRV6_CONTRIBUTION_INTRODUCED_TOP_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(platformConfig, key)) {
+        result[key] = deepClone(empty);
+      }
+    }
     preserveDeviceIfaceVrrpOnSrv6Overlay(deviceConfig, result);
     return result;
   }
@@ -297,12 +313,23 @@ export const getOverlayKeysForDomain = (
   platform: VrConfigJson,
 ): string[] => {
   if (domain === 'srv6') {
-    return Object.keys(platform).filter((k) => !META_KEYS.has(k) && !OTHER_FEATURE_KEYS.has(k));
+    const keys = Object.keys(platform).filter((k) => !META_KEYS.has(k) && !OTHER_FEATURE_KEYS.has(k));
+    // 贡献引入型 key：意图缺省时仍会清空设备，必须纳入漂移检测，禁止静默 wipe
+    for (const { key } of SRV6_CONTRIBUTION_INTRODUCED_TOP_KEYS) {
+      if (META_KEYS.has(key) || OTHER_FEATURE_KEYS.has(key)) continue;
+      if (!keys.includes(key)) keys.push(key);
+    }
+    return keys;
   }
   if (domain === 'nat') {
     return NAT_SLICE_KEYS.filter((k) => Object.prototype.hasOwnProperty.call(platform, k));
   }
   return [domain];
+};
+
+const srv6IntroducedEmpty = (key: string): unknown | undefined => {
+  const hit = SRV6_CONTRIBUTION_INTRODUCED_TOP_KEYS.find((item) => item.key === key);
+  return hit ? hit.empty : undefined;
 };
 
 /** SRv6 漂移比较忽略接口上的 vrrp / ipv6_nd_proxy（非 SRv6 切片字段） */
@@ -349,10 +376,12 @@ export const detectDeployDrift = (
   const overlayKeys = getOverlayKeysForDomain(domain, platform);
 
   for (const key of overlayKeys) {
-    if (!Object.prototype.hasOwnProperty.call(platform, key)) continue;
+    const platformHasKey = Object.prototype.hasOwnProperty.call(platform, key);
+    const introducedEmpty = domain === 'srv6' ? srv6IntroducedEmpty(key) : undefined;
+    if (!platformHasKey && introducedEmpty === undefined) continue;
 
     const deviceVal = device[key];
-    const platformVal = platform[key];
+    const platformVal = platformHasKey ? platform[key] : introducedEmpty;
     const deviceNorm = normalizeSliceForCompare(domain, key, deviceVal);
     const platformNorm = normalizeSliceForCompare(domain, key, platformVal);
 
