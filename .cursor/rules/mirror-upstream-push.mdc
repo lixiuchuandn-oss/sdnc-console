@@ -1,0 +1,16 @@
+---
+description: SDNC 内嵌镜像与远端原仓必须成对提交并推送
+alwaysApply: true
+---
+
+# 镜像目录与远端原仓成对推送
+
+`ibr-local-web`、`ibr-controller`、`ibr-local-agent` 是远端原仓的副本，不是唯一真源。改了其中任一目录的功能，同一改动必须进对应原仓，并且 **SDNC 与原仓都要提交并推送**。只改副本、只提交不推送，都算没完成。
+
+| SDNC 副本 | 原仓 | 远端 | 分支 |
+|-----------|------|------|------|
+| `ibr-local-web/` | `D:\200.Dev\sdnc-console\Paas-VRv2` | `github.com/lixiuchuandn-oss/Paas-VRv2` | `Paas-VRv2_yundi_1031` |
+| `ibr-controller/` | `D:\200.Dev\sdnc-console\csm-controller` | `http://10.22.0.10:1080/liyutao/csm-controller` | `csm-controller_20241213_anyouyou` |
+| `ibr-local-agent/` | `D:\200.Dev\VRouter\ipoe_product-20260521-vrbranch-aifirst-fix` 的 `control-plane/etc/agent/` | `http://10.22.0.10:1080/renchengjun/ipoe_product`（remote `gitlab1080`） | `20260624-vrbranche-aifirst-fix` |
+
+合入时保留原仓上 SDNC 副本没有的后续提交，按差异补丁同步，不要整目录覆盖。agent 脚本保持 LF。
