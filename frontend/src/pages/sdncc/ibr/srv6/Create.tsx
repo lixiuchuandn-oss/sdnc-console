@@ -12,7 +12,7 @@ import IbrWizardPage from '../lib/IbrWizardPage';
 import IbrWizardStepPane from '../lib/IbrWizardStepPane';
 import { useIbrDeployWizard } from '../lib/useIbrDeployWizard';
 import { filterLinkLocalIpv6 } from '../routers/vrIpv6Utils';
-import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
+import { buildSrv6PeerRouteDestination, resolveSid64Via, validateSid64NextHop } from './srv6Ipv6';
 import {
   buildSrv6RdRtMetaFromPeEndpoints,
   extractRdRtFromPeConfigForVrf,
@@ -1668,7 +1668,7 @@ const SRv6CreatePage: React.FC = () => {
   /** 公共 PE 注入逻辑：PE-PE 邻居 + PE-CE 邻居 + RD/RT + 两条 IPv6 路由（SID/64 + VRF ::/0） */
   const buildInjectedPeConfig = (
     selfKey: 'peA' | 'peB',
-  ): { preview: any; storage: any } => {
+  ): { preview: any; storage: any; sid64Error?: string } => {
     const selfCfg = peConfigs[selfKey];
     const peerKey = selfKey === 'peA' ? 'peB' : 'peA';
     const peerCfg = peConfigs[peerKey];
@@ -1720,16 +1720,21 @@ const SRv6CreatePage: React.FC = () => {
       const idx = findBgpIndexByVrf(c, vrf);
       c = injectRdRtIntoIpv4UnicastAfAtBgpIndex(c, idx !== undefined ? idx : 1, rdRtMeta.rdMap[rdKey], rdRtMeta.rtCommon);
     }
-    // IPv6 路由：注入两条——①对端 SID/64 路由(不带 vrf，via=对端PE公网IPv6) ②VRF默认路由 ::/0(带 vrf，via=nexthop-vrf 0)
+    // IPv6 路由：注入两条——①对端 SID/64（via 按 §14.14.1）②VRF 默认 ::/0（nexthop-vrf 0）
     const peerPrefix = peerCfg ? extractSrv6Prefix(peerCfg) : undefined;
     const srv6PeerDest = buildSrv6PeerRouteDestination(peerPrefix);
     const sid64WanIf = topo === 'H' && hubSlot && selfKey === hubSlot ? hubWanIf : undefined;
     const via = peerCfg ? resolveSid64Via(selfCfg, peerCfg, sid64WanIf) : undefined;
-    if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+    let sid64Error: string | undefined;
+    if (c && srv6PeerDest && via && vrf !== undefined) {
+      sid64Error = validateSid64NextHop(srv6PeerDest, via);
+      if (!sid64Error) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
+    }
 
     return {
       preview: c ? sanitizeForDevice(c) : null,
       storage: c ? buildPeConfigForPlatformStorage(c) : null,
+      sid64Error,
     };
   };
 
@@ -1743,6 +1748,9 @@ const SRv6CreatePage: React.FC = () => {
   const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues, inferredTopology, inferredHubPeSlot, rrDomains]);
   const peBPreviewCfg = peBInjected.preview;
   const peBPreviewStorageCfg = peBInjected.storage;
+  const sid64BlockError = [peAInjected.sid64Error && `PE-A：${peAInjected.sid64Error}`, peBInjected.sid64Error && `PE-B：${peBInjected.sid64Error}`]
+    .filter(Boolean)
+    .join('\n') || undefined;
 
   // CE 预览：仅注入 PE 内网 neighbor（与 ce2 一致：无 RD/RT、无 neighbor_disable_connected_check）
   const ceAPreviewCfg = useMemo(() => {
@@ -1984,6 +1992,10 @@ const SRv6CreatePage: React.FC = () => {
   /** 第 3 步：创建隧道记录 + 仅保存平台库（不下发设备）；下发在下一步向导中分步执行 */
   const saveTunnelPlatformOnly = async () => {
     if (!validateTunnelForm()) return;
+    if (sid64BlockError) {
+      message.error(sid64BlockError, 8);
+      return;
+    }
     const values = form.getFieldsValue(true);
     const peAVrfForRd = extractInterfaceVrf(peConfigs.peA, values?.peAInnerIf);
     const peBVrfForRd = extractInterfaceVrf(peConfigs.peB, values?.peBInnerIf);
@@ -2459,6 +2471,15 @@ const SRv6CreatePage: React.FC = () => {
             />
           )}
 
+          {sid64BlockError ? (
+            <Alert
+              type="error"
+              showIcon
+              message={editId ? '无法保存隧道' : '无法创建隧道'}
+              description={sid64BlockError}
+            />
+          ) : null}
+
           <Alert
             type="info"
             showIcon
@@ -2572,7 +2593,12 @@ const SRv6CreatePage: React.FC = () => {
                         已保存到平台
                       </span>
                     )}
-                    <Button type="primary" loading={platformSaveLoading} disabled={platformSaved} onClick={() => void saveTunnelPlatformOnly()}>
+                    <Button
+                      type="primary"
+                      loading={platformSaveLoading}
+                      disabled={platformSaved || !!sid64BlockError}
+                      onClick={() => void saveTunnelPlatformOnly()}
+                    >
                       {editId ? '更新隧道并保存到平台' : '创建隧道并保存到平台'}
                     </Button>
                     <Button type="primary" disabled={!platformSaved} onClick={() => { commitPreview(); next(); }}>

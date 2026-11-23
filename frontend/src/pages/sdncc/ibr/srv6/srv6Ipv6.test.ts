@@ -1,8 +1,11 @@
 import {
   buildSrv6PeerRouteDestination,
   extractWanIpv6Gateway,
+  isIpv6HostInCidr,
   maskToIpv6Network,
   resolveSid64Via,
+  SID64_VIA_IN_DEST_MESSAGE,
+  validateSid64NextHop,
 } from './srv6Ipv6';
 
 describe('srv6Ipv6', () => {
@@ -43,6 +46,17 @@ describe('srv6Ipv6', () => {
       const selfCfg = {
         ipv6_route: [{ destination: '::/0', via: '500::1' }],
       };
+      expect(resolveSid64Via(selfCfg, peerCfg)).toBe('500::1');
+    });
+
+    it('prefers ::/0 gateway over a SID-shaped public route', () => {
+      const selfCfg = {
+        ipv6_route: [
+          { destination: '240f:2033::/64', via: '240f:2033::1' },
+          { destination: '::/0', via: '500::1' },
+        ],
+      };
+      expect(extractWanIpv6Gateway(selfCfg)).toBe('500::1');
       expect(resolveSid64Via(selfCfg, peerCfg)).toBe('500::1');
     });
 
@@ -97,6 +111,25 @@ describe('srv6Ipv6', () => {
     it('falls back to peer public IPv6 when local WAN has no ipv6_route', () => {
       expect(resolveSid64Via({}, peerCfg, 'ge0')).toBe('203::44');
       expect(resolveSid64Via({ ipv6_route: [] }, peerCfg, 'ge1')).toBe('203::44');
+    });
+  });
+
+  describe('validateSid64NextHop', () => {
+    it('rejects via inside SID destination CIDR', () => {
+      expect(isIpv6HostInCidr('2200::100', '2200::/64')).toBe(true);
+      expect(validateSid64NextHop('2200::/64', '2200::100')).toBe(SID64_VIA_IN_DEST_MESSAGE);
+    });
+
+    it('allows via outside destination (direct or gateway)', () => {
+      expect(isIpv6HostInCidr('203::44', '240f:2033::/64')).toBe(false);
+      expect(validateSid64NextHop('240f:2033::/64', '203::44')).toBeUndefined();
+      expect(validateSid64NextHop('240f:2033::/64', '500::1')).toBeUndefined();
+    });
+
+    it('ignores nexthop-vrf and incomplete pairs', () => {
+      expect(validateSid64NextHop('::/0', 'nexthop-vrf 0')).toBeUndefined();
+      expect(validateSid64NextHop('2200::/64', '')).toBeUndefined();
+      expect(validateSid64NextHop('', '2200::100')).toBeUndefined();
     });
   });
 });

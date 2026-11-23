@@ -172,6 +172,34 @@ describe('srv6Archive buildTunnelArchive', () => {
     expect(hubSidRoute?.via).toBe(peerIp);
   });
 
+  it('rejects SID/64 when via falls inside destination CIDR', () => {
+    const peA = {
+      bgp: [{ vrf: 0, asn: 65000 }, { vrf: 10, asn: 65001 }],
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/0/0', ipv6_static: '2100::1/64' },
+        { name: 'GigabitEthernet 0/0/1', ipv4_static: '10.0.0.1/24', vrf: 10 },
+      ],
+      segment_routing_srv6: { prefix: '2100::aaaa' },
+    };
+    const peB = {
+      bgp: [{ vrf: 0, asn: 65003 }],
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/0/0', ipv6_static: '2200::100/64' }],
+      segment_routing_srv6: { prefix: '2200::1235' },
+    };
+    expect(() =>
+      buildTunnelArchive({
+        peA: 'pe-a',
+        peB: 'pe-b',
+        peAInnerIf: 'GigabitEthernet 0/0/1',
+        peBInnerIf: 'GigabitEthernet 0/0/0',
+        peConfigs: { peA, peB },
+        ceConfigs: { ceA: rawCeA, ceB: rawCeA },
+        rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
+        tunnelTopology: 'S',
+      }),
+    ).toThrow(/SID\/64 下一跳落在目的网段内/);
+  });
+
   it('Hub SID/64 via prefers WAN ipv6_route gateway over interface address', () => {
     const hubPe = {
       bgp: [{ vrf: 0, asn: 65000 }, { vrf: 10, asn: 65001 }],

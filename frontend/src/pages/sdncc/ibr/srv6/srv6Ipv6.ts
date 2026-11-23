@@ -112,7 +112,12 @@ export function extractWanIpv6Gateway(cfg: unknown, wanIf?: string): string | un
     }
   }
 
-  for (const row of listPublicIpv6Routes(c)) {
+  const publicRoutes = listPublicIpv6Routes(c);
+  const ordered = [
+    ...publicRoutes.filter((r) => String(r.destination ?? '').trim() === '::/0'),
+    ...publicRoutes.filter((r) => String(r.destination ?? '').trim() !== '::/0'),
+  ];
+  for (const row of ordered) {
     const via = pickPublicIpv6RouteVia(row);
     if (via) return via;
   }
@@ -124,6 +129,74 @@ export function resolveSid64Via(selfCfg: unknown, peerCfg: unknown, wanIf?: stri
   const gateway = extractWanIpv6Gateway(selfCfg, wanIf);
   if (gateway) return gateway;
   return extractPePublicIpv6(peerCfg);
+}
+
+/** 展开为 8 个 hextet 数值，便于按前缀位比较 */
+export function expandIpv6Hextets(addr: string): number[] | null {
+  const clean = String(addr || '')
+    .replace(/\/\d+$/, '')
+    .trim()
+    .toLowerCase();
+  if (!clean || !clean.includes(':')) return null;
+  const halves = clean.split('::');
+  let groups: string[];
+  if (halves.length === 2) {
+    const left = halves[0] ? halves[0].split(':').filter((g) => g.length > 0) : [];
+    const right = halves[1] ? halves[1].split(':').filter((g) => g.length > 0) : [];
+    const fillLen = Math.max(0, 8 - left.length - right.length);
+    groups = [...left, ...Array(fillLen).fill('0'), ...right];
+  } else {
+    groups = clean.split(':').filter((g) => g.length > 0);
+    while (groups.length < 8) groups.push('0');
+  }
+  if (groups.length !== 8) return null;
+  const nums = groups.map((g) => parseInt(g, 16));
+  if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 0xffff)) return null;
+  return nums;
+}
+
+/** host 是否落在 cidr（如 2200::/64）内 */
+export function isIpv6HostInCidr(host: string, cidr: string): boolean {
+  const raw = String(cidr || '').trim();
+  const slash = raw.lastIndexOf('/');
+  if (slash <= 0) return false;
+  const net = raw.slice(0, slash).trim();
+  const plen = Number(raw.slice(slash + 1));
+  if (!net || !Number.isFinite(plen) || plen < 0 || plen > 128) return false;
+  const hostGroups = expandIpv6Hextets(host);
+  const netGroups = expandIpv6Hextets(net);
+  if (!hostGroups || !netGroups) return false;
+  let bitsLeft = Math.trunc(plen);
+  for (let i = 0; i < 8 && bitsLeft > 0; i++) {
+    const take = Math.min(16, bitsLeft);
+    const shift = 16 - take;
+    const mask = take === 16 ? 0xffff : (0xffff << shift) & 0xffff;
+    if ((hostGroups[i]! & mask) !== (netGroups[i]! & mask)) return false;
+    bitsLeft -= take;
+  }
+  return true;
+}
+
+export const SID64_VIA_IN_DEST_MESSAGE =
+  'SID/64 下一跳落在目的网段内，路由无效。经上游跨网段时请先在角色向导「静态路由（WAN）」填写公网 IPv6 网关；直连时 SID locator 与对端公网地址须分属不同网段。';
+
+/**
+ * SID/64 静态路由下一跳校验：via 不得落在 destination 网段内。
+ * @returns 错误文案；合法则 undefined
+ */
+export function validateSid64NextHop(destination?: string, via?: string): string | undefined {
+  const dest = String(destination ?? '').trim();
+  const hop = String(via ?? '').trim();
+  if (!dest || !hop) return undefined;
+  if (/^nexthop-vrf/i.test(hop)) return undefined;
+  if (!hop.includes(':') || !dest.includes(':')) return undefined;
+  if (isIpv6HostInCidr(hop, dest)) return SID64_VIA_IN_DEST_MESSAGE;
+  return undefined;
+}
+
+export function assertValidSid64NextHop(destination?: string, via?: string): void {
+  const err = validateSid64NextHop(destination, via);
+  if (err) throw new Error(err);
 }
 
 /** 将 IPv6 主机地址按 prefixLen 掩码为网段地址（不含 /prefix 后缀） */
