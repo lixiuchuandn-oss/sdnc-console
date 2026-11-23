@@ -140,7 +140,7 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 			Array.isArray(status?.os_nic_attach_pci)
 				? status!.os_nic_attach_pci!.map((x) => String(x).trim()).filter(Boolean)
 				: [],
-		[status?.os_nic_attach_pci],
+		[status],
 	);
 
 	const wanIf =
