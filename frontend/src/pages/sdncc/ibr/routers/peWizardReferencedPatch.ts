@@ -9,6 +9,7 @@ import {
   buildHubInventoryFromPeWizardValues,
   parseHubInventoryFromConfig,
   type HubInventory,
+  type HubLanFormRow,
   type HubWanFormRow,
 } from './hubPeInventory';
 import {
@@ -29,7 +30,7 @@ export type PeWizardReferencedValues = {
   ipv6Dest?: string;
   ipv6Via?: string;
   hubWanInventory?: HubWanFormRow[];
-  lanConfigs?: unknown[];
+  lanConfigs?: HubLanFormRow[];
   wanIpv4?: string;
   wanIpv6?: string;
 };
