@@ -177,55 +177,20 @@ export function isIpv6HostInCidr(host: string, cidr: string): boolean {
   return true;
 }
 
+/** 跨网段缺公网网关时的通用说明（可再经 formatSid64CrossSubnetBlockMessage 补对端名） */
 export const SID64_VIA_IN_DEST_MESSAGE =
-  '无法为该 PE 注入到对端 SID 前缀的静态路由：下一跳落在目的网段内，设备不会按该路由转发。请先在该 PE 角色向导「静态路由（WAN）」填写公网 IPv6 网关（上游下一跳，且不得落在 SID 前缀内）。';
+  '与对端设备跨网段互联，因缺少网关信息无法建立到对端的路由，这是隧道通信的前提。请先在该 PE 角色向导「静态路由（WAN）」填写公网 IPv6 网关。';
 
 export const SID64_SKIP_ONLINK_MESSAGE =
-  '对端 SID 前缀与本端公网同网段，已省略 SID 静态路由（接口直连可达）。';
+  '本端与对端公网在同一网段，无需再单独配置到对端的静态路由。';
 
 export type Sid64RouteDecision = 'inject' | 'skip_onlink' | 'invalid';
 
-export type Sid64InjectPlan = {
-  sid?: { destination: string; via: string };
-  sidDecision?: Sid64RouteDecision;
-  vrfDefault?: { destination: string; vrf: number | string; via: string };
-};
-
-export function formatSid64RouteSnippet(destination?: string, via?: string): string | undefined {
-  const dest = String(destination ?? '').trim();
-  const hop = String(via ?? '').trim();
-  if (!dest || !hop) return undefined;
-  return `{ "destination": "${dest}", "via": "${hop}" }`;
-}
-
-export function describeSid64InvalidRoute(destination?: string, via?: string): string {
-  const snippet = formatSid64RouteSnippet(destination, via);
-  const inject = snippet ? `\n本将随隧道注入 ipv6_route：${snippet}。因下一跳落在 SID 目的网段内，该路由无效，已拦截。` : '';
-  return `${SID64_VIA_IN_DEST_MESSAGE}${inject}`;
-}
-
-export function formatSid64InjectPlanNote(plan?: Sid64InjectPlan): string | undefined {
-  if (!plan?.sid && !plan?.vrfDefault) return undefined;
-  const lines: string[] = [];
-  if (plan.sid) {
-    const snippet = formatSid64RouteSnippet(plan.sid.destination, plan.sid.via);
-    if (plan.sidDecision === 'invalid') {
-      lines.push(`SID 前缀路由（拦截未下发）：${snippet}`);
-    } else if (plan.sidDecision === 'skip_onlink') {
-      lines.push('SID 前缀路由：已省略（本端公网与对端 SID 同网段，直连可达）');
-    } else if (snippet) {
-      lines.push(`SID 前缀路由：${snippet}`);
-    }
-  }
-  if (plan.vrfDefault) {
-    const held = plan.sidDecision === 'invalid' ? '（SID 拦截时本端暂不注入）' : '';
-    lines.push(
-      `VRF 默认路由：{ "destination": "${plan.vrfDefault.destination}", "vrf": ${JSON.stringify(
-        plan.vrfDefault.vrf,
-      )}, "via": "${plan.vrfDefault.via}" }${held}`,
-    );
-  }
-  return lines.join('\n');
+/** 例如 peerLabel=`PE-B` →「与 PE-B 设备跨网段互联…」 */
+export function formatSid64CrossSubnetBlockMessage(peerLabel?: string): string {
+  const peer = String(peerLabel ?? '').trim();
+  if (!peer) return SID64_VIA_IN_DEST_MESSAGE;
+  return SID64_VIA_IN_DEST_MESSAGE.replace('与对端设备', `与 ${peer} 设备`);
 }
 
 /**
@@ -260,7 +225,7 @@ export function decideSid64Route(
   if (local && dest && isIpv6HostInCidr(local, dest)) {
     return { decision: 'skip_onlink', message: SID64_SKIP_ONLINK_MESSAGE };
   }
-  return { decision: 'invalid', message: describeSid64InvalidRoute(destination, via) };
+  return { decision: 'invalid', message: SID64_VIA_IN_DEST_MESSAGE };
 }
 
 export function assertValidSid64NextHop(

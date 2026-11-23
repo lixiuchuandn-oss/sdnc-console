@@ -16,9 +16,8 @@ import {
   buildSrv6PeerRouteDestination,
   decideSid64Route,
   formatPairedEndpointNotes,
-  formatSid64InjectPlanNote,
+  formatSid64CrossSubnetBlockMessage,
   resolveSid64Via,
-  type Sid64InjectPlan,
 } from './srv6Ipv6';
 import {
   buildSrv6RdRtMetaFromPeEndpoints,
@@ -1684,7 +1683,7 @@ const SRv6CreatePage: React.FC = () => {
   /** 公共 PE 注入逻辑：PE-PE 邻居 + PE-CE 邻居 + RD/RT + 两条 IPv6 路由（SID/64 + VRF ::/0） */
   const buildInjectedPeConfig = (
     selfKey: 'peA' | 'peB',
-  ): { preview: any; storage: any; sid64Error?: string; sid64Skip?: string; injectPlan?: Sid64InjectPlan } => {
+  ): { preview: any; storage: any; sid64Error?: string; sid64Skip?: string } => {
     const selfCfg = peConfigs[selfKey];
     const peerKey = selfKey === 'peA' ? 'peB' : 'peA';
     const peerCfg = peConfigs[peerKey];
@@ -1746,12 +1745,11 @@ const SRv6CreatePage: React.FC = () => {
       : extractPortIpv6(selfCfg, 0);
     let sid64Error: string | undefined;
     let sid64Skip: string | undefined;
-    let sidDecision: Sid64InjectPlan['sidDecision'];
     if (c && srv6PeerDest && via && vrf !== undefined) {
       const decided = decideSid64Route(srv6PeerDest, via, localWanIp);
-      sidDecision = decided.decision;
       if (decided.decision === 'invalid') {
-        sid64Error = decided.message;
+        const peerLabel = selfKey === 'peA' ? 'PE-B' : 'PE-A';
+        sid64Error = formatSid64CrossSubnetBlockMessage(peerLabel);
       } else if (decided.decision === 'skip_onlink') {
         sid64Skip = decided.message;
         c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf, { omitSid: true });
@@ -1760,25 +1758,11 @@ const SRv6CreatePage: React.FC = () => {
       }
     }
 
-    const injectPlan: Sid64InjectPlan | undefined =
-      srv6PeerDest && via
-        ? {
-            sid: { destination: srv6PeerDest, via },
-            sidDecision,
-            ...(vrf !== undefined
-              ? { vrfDefault: { destination: '::/0', vrf, via: 'nexthop-vrf 0' } }
-              : {}),
-          }
-        : vrf !== undefined
-          ? { vrfDefault: { destination: '::/0', vrf, via: 'nexthop-vrf 0' } }
-          : undefined;
-
     return {
       preview: c ? sanitizeForDevice(c) : null,
       storage: c ? buildPeConfigForPlatformStorage(c) : null,
       sid64Error,
       sid64Skip,
-      injectPlan,
     };
   };
 
@@ -1792,12 +1776,12 @@ const SRv6CreatePage: React.FC = () => {
   const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues, inferredTopology, inferredHubPeSlot, rrDomains]);
   const peBPreviewCfg = peBInjected.preview;
   const peBPreviewStorageCfg = peBInjected.storage;
-  const sid64BlockError = formatPairedEndpointNotes(peAInjected.sid64Error, peBInjected.sid64Error);
+  // 两端同类跨网段拦截时文案仅展开 PE-A，PE-B 标「同 PE-A」，避免重复长文
+  const sid64BlockError =
+    peAInjected.sid64Error && peBInjected.sid64Error
+      ? `PE-A：${peAInjected.sid64Error}\nPE-B：同 PE-A`
+      : formatPairedEndpointNotes(peAInjected.sid64Error, peBInjected.sid64Error);
   const sid64SkipNote = formatPairedEndpointNotes(peAInjected.sid64Skip, peBInjected.sid64Skip);
-  const sid64InjectNote = formatPairedEndpointNotes(
-    formatSid64InjectPlanNote(peAInjected.injectPlan),
-    formatSid64InjectPlanNote(peBInjected.injectPlan),
-  );
 
   // CE 预览：仅注入 PE 内网 neighbor（与 ce2 一致：无 RD/RT、无 neighbor_disable_connected_check）
   const ceAPreviewCfg = useMemo(() => {
@@ -2443,24 +2427,6 @@ const SRv6CreatePage: React.FC = () => {
       };
       return wizardStepShell(
         <>
-          {sid64BlockError ? (
-            <Alert
-              type="error"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message={editId ? '无法保存隧道' : '无法创建隧道'}
-              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64BlockError}</span>}
-            />
-          ) : null}
-          {sid64SkipNote ? (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="已省略 SID 静态路由"
-              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64SkipNote}</span>}
-            />
-          ) : null}
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="隧道名称">{form.getFieldValue('tunnelName') || '-'}</Descriptions.Item>
             <Descriptions.Item label="隧道类型">{tunnelLinkTypeLabel(tunnelLinkType)}</Descriptions.Item>
@@ -2520,13 +2486,22 @@ const SRv6CreatePage: React.FC = () => {
             <Descriptions.Item label="PE-B RD">{rdRtMeta?.rdMap?.peB || '-'}</Descriptions.Item>
           </Descriptions>
 
-          {sid64InjectNote ? (
+          {sid64BlockError ? (
             <Alert
-              type={sid64BlockError ? 'warning' : 'info'}
+              type="error"
               showIcon
               style={{ marginTop: 12, marginBottom: 12 }}
-              message="隧道创建时向 PE 注入的 IPv6 路由（不在上方基准信息中）"
-              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64InjectNote}</span>}
+              message={editId ? '无法保存隧道' : '无法创建隧道'}
+              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64BlockError}</span>}
+            />
+          ) : null}
+          {!sid64BlockError && sid64SkipNote ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 12, marginBottom: 12 }}
+              message="路由说明"
+              description={<span style={{ whiteSpace: 'pre-line' }}>{sid64SkipNote}</span>}
             />
           ) : null}
 

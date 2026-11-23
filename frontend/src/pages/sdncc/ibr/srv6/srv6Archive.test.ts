@@ -197,7 +197,7 @@ describe('srv6Archive buildTunnelArchive', () => {
         rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
         tunnelTopology: 'S',
       }),
-    ).toThrow(/下一跳落在目的网段内/);
+    ).toThrow(/缺少网关信息/);
   });
 
   it('omits SID static when locator shares WAN prefix (on-link)', () => {
