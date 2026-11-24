@@ -45,7 +45,7 @@ import { openIbrConsole } from '../lib/ibrLocalWebUrl';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /** 与 useTableColumnSettings / TableColumnSettingsButton 的默认隐藏列一致 */
-const VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN = ['mac', 'type'];
+const VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN = ['mac', 'type', 'rx_total', 'tx_total'];
 
 type VRRow = VrListRow;
 
@@ -249,7 +249,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
   });
   const { displayColumns: vrDisplayColumns } = useTableColumnSettings(
     columns,
-    'interconnect_vr_instances',
+    'ibr_vr_instances_v2',
     VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN,
   );
 
@@ -298,7 +298,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
               </Dropdown>
               <TableColumnSettingsButton<VRRow>
                 allColumns={columns}
-                settingsKey="interconnect_vr_instances"
+                settingsKey="ibr_vr_instances_v2"
                 defaultHiddenColumns={VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN}
               />
               <Button icon={<ReloadOutlined />} onClick={() => { void handleManualRefresh(); }} />

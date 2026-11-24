@@ -48,6 +48,55 @@ function pushInterfaceArray(target: Array<Record<string, unknown>>, value: unkno
   }
 }
 
+/** GigabitEthernet 0/7/0 与 GigabitEthernet0/7/0 视为同一口 */
+function physicalIfaceKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function ifaceTrafficScore(iface: Record<string, unknown>): number {
+  return [
+    iface.receivePacketsPerSecond,
+    iface.transmitPacketsPerSecond,
+    iface.receiveRateBps,
+    iface.transmitRateBps,
+  ].reduce<number>((score, value) => score + (Number(value) > 0 ? 1 : 0), 0);
+}
+
+const TRAFFIC_FIELDS = [
+  'receivePacketsPerSecond',
+  'transmitPacketsPerSecond',
+  'receiveRateBps',
+  'transmitRateBps',
+] as const;
+
+/**
+ * 列表行会同时带上摊平后的 VR3 字段和 vr3_info 原文，同一网口会进两次。
+ * 按网口名留一份。地址保留先出现的那份，实时计数只在后者更高时补上，避免合计被加两次。
+ */
+function dedupePhysicalInterfaces(
+  ifaces: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const byName = new Map<string, Record<string, unknown>>();
+  const nameless: Array<Record<string, unknown>> = [];
+  for (const iface of ifaces) {
+    const key = physicalIfaceKey(String(iface.name || ''));
+    if (!key) {
+      nameless.push(iface);
+      continue;
+    }
+    const prev = byName.get(key);
+    if (!prev) {
+      byName.set(key, iface);
+      continue;
+    }
+    if (ifaceTrafficScore(iface) <= ifaceTrafficScore(prev)) continue;
+    const merged: Record<string, unknown> = { ...prev };
+    for (const field of TRAFFIC_FIELDS) merged[field] = iface[field];
+    byName.set(key, merged);
+  }
+  return [...byName.values(), ...nameless];
+}
+
 /** 聚合 VR1/VR3 缓存与 interfaces_* 分片中的物理网口 */
 export function collectVrPhysicalInterfaces(row: Record<string, unknown>): Array<Record<string, unknown>> {
   const all: Array<Record<string, unknown>> = [];
@@ -63,7 +112,7 @@ export function collectVrPhysicalInterfaces(row: Record<string, unknown>): Array
       if (key.startsWith('interfaces_')) pushInterfaceArray(all, value);
     }
   }
-  return all
+  return dedupePhysicalInterfaces(all)
     .filter((iface) => {
       const name = String(iface.name || '').toLowerCase();
       return (
