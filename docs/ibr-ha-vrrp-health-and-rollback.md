@@ -157,7 +157,7 @@ HA 下发/回退      只动本组 vrrp 片
 
 | 阶段 | 内容 | 建议 |
 |------|------|------|
-| **H0. 互不踩踏** | SRv6 `domain=srv6` 覆盖 interfaces 时保留设备接口 vrrp；顶层 `vrrp` 不覆盖；**漂移比较忽略 VRRP**（不弹「覆盖」窗） | 否则 HA 健康再准也会被邻域冲掉（CE1 已中招） |
+| **H0. 互不踩踏** | SRv6 公式/基线**不拥有** VRRP（捕获/recompute 剥掉顶层与接口 `vrrp`）。`domain=srv6` 覆盖 interfaces 时 **以设备现网 vrrp 为准**（公式有旧 `auth_pass` 也丢掉）；顶层 `vrrp` 不覆盖；漂移比较忽略 VRRP。写回共享 `config_json` 时 `stitchHaVrrpSlice` 缝回现网/原账本 HA 片。SRv6 路径不读 HA 组、不按 `vrrpIntent` 回放 | 否则冻结基线会把旧口令/priority 盖回，或公式写库抹掉 HA（CE3 已中招） |
 | **H1. 解散回退** | 解散必剥设备本组 VRRP（R1 取消「只删平台」勾选）；备失败补偿主；删库前剥离隧道指纹（不 409） | **已落地**（勾选路径）；**R1 改缺省 / 关 false** 见删除收口文档 §19.2 |
 | **H2. 列表健康** | HA 组列增加健康；详情 diff；不写进 SRv6 `configHealth` | **已落地**（只读对账；「扫描并修复」= 再 deploy 意图） |
 | **H3. 下发漂移** | HA 子集漂移弹窗；`acknowledgeDrift` | **已落地**（依赖 H0；通用 vrrp 域仍 skipDriftCheck） |
@@ -191,7 +191,7 @@ HA 下发/回退      只动本组 vrrp 片
 | live 解析 | `utils/parseVrrpShow.ts`、`haGroupInspect.ts`；设备侧 `ibr-local-web` `getVrrpRunning` 附带 `instancesRaw` / `groupsRaw` |
 | 健康比较 | `haGroupHealth.ts`（子集 equal + 下发漂移）；单测 `haGroupHealth.test.ts` |
 | 物化 | `haGroupVrrpMaterialize.ts`：`extractHaGroupVrrpSubset` / `stripHaGroupVrrpFromDeviceConfig` |
-| 下发网关 | `vrConfigDeploy.ts`：SRv6 保留 VRRP（H0）；HA 走 `preMergedConfig` + 组级子集漂移 |
+| 下发网关 | `vrConfigDeploy.ts`：SRv6 overlay 以设备 VRRP 为准（H0）；公式/基线 `stripHaVrrpSlice`；HA 走 `preMergedConfig` + 组级子集漂移 |
 | 隧道指纹 | `SRv6Tunnel.endpointFingerprint.*.haGroupId`；建组/改名/换成员 `attachSrv6TunnelsToHaGroup`，解散 `detachSrv6TunnelsFromHaGroup`（`findSrv6TunnelsReferencingHaGroup` 仅查询，不再作拒绝门闩）；SRv6 列表 GET 按现网成员叠加 `haGroupName` |
 | 隧道 error | `srv6.delete.ts` 写入；复位不要放进 HA `remove` |
 | E2E | `tests/e2e-manifest.cjs` 登记 HA 健康 / 解散回退 |
@@ -236,6 +236,8 @@ HA 下发/回退      只动本组 vrrp 片
 | 2026-11-16 | **接线**：`ibrHaGroupService.remove` 调用 `detachSrv6TunnelsFromHaGroup`；解散不再因指纹 409 |
 | 2026-11-18 | **R1**：解散取消「只删平台」；必须剥本组 VRRP。详见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) §19.2 |
 | 2026-11-24 | 建组方向补 `attachSrv6TunnelsToHaGroup`（与解散 detach 对称）；SRv6 列表按现网 HA 成员展示组名 |
+| 2026-11-24 | **H0 补洞**：SRv6 公式/基线剥 HA VRRP；overlay 以设备现网 vrrp 为准，禁止冻结基线盖回旧 `auth_pass`。不读 HA 组 |
+| 2026-11-24 | **共享账本缝合**：SRv6 写回 `config_json` 时 `stitchHaVrrpSlice`（来自设备合并稿/原账本），公式仍无 VRRP、整机账本不抹 HA |
 
 ---
 

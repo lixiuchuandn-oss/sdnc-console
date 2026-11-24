@@ -3,7 +3,7 @@ import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
 import { configBusinessEqual } from '../../utils/configSemanticEqual';
-import { stripVrrpOwnedFields } from '../../utils/stripVrrpOwnedFields';
+import { stitchHaVrrpSlice, stripVrrpOwnedFields } from '../../utils/stripVrrpOwnedFields';
 import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { captureSrv6BaselinesForTunnel } from './srv6.baseline';
 import { mergeBaselineWithContributions } from './srv6.merge';
@@ -13,6 +13,18 @@ const vrRepo = () => AppDataSource.getRepository(VRConfig);
 
 const slotLabel = (slot: Srv6EndpointSlot) =>
   ({ peA: 'PE-A', peB: 'PE-B', ceA: 'CE-A', ceB: 'CE-B' } as const)[slot];
+
+const parseConfigJson = (raw: string | null | undefined): Record<string, unknown> | null => {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+};
 
 export const tunnelEndpointRefs = (tunnel: SRv6Tunnel) => [
   { slot: 'peA' as const, vrId: tunnel.peA },
@@ -33,9 +45,11 @@ export const persistSrv6VrEffectiveConfig = async (
       (err as Error & { statusCode: number }).statusCode = 404;
       throw err;
     }
-    record.config_json = JSON.stringify(effective);
+    // 公式无 VRRP；写回共享账本时缝上原账本 HA 片，避免抹掉邻域
+    const ledger = stitchHaVrrpSlice(effective, parseConfigJson(record.config_json));
+    record.config_json = JSON.stringify(ledger);
     await vrRepo().save(record);
-    return effective;
+    return ledger;
   });
 };
 

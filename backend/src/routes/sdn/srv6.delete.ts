@@ -3,6 +3,7 @@ import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { pushVRConfig } from '../../services/vrouter/vrConfigDeploy';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import { stitchHaVrrpSlice } from '../../utils/stripVrrpOwnedFields';
 import { parseSrv6Baseline } from './srv6.baseline';
 import { resetSrv6BaselineWhenNoTunnels } from './srv6.baseline';
 import { recomputeVrEffectiveConfig } from './srv6.recompute';
@@ -20,6 +21,8 @@ type PreparedRevert = {
   record: VRConfig;
   originalConfig: Record<string, unknown>;
   nextConfig: Record<string, unknown>;
+  /** 写回共享 config_json：SRv6 公式 + 设备现网 HA VRRP */
+  ledgerConfig?: Record<string, unknown>;
 };
 
 const slotEndpoints = (
@@ -102,13 +105,15 @@ export const revertSrv6TunnelInjections = async (tunnel: SRv6Tunnel): Promise<Re
   const pushed: PreparedRevert[] = [];
   for (const item of prepared) {
     try {
-      await pushVRConfig({
+      const pushResult = await pushVRConfig({
         vrId: item.vrId,
         domain: 'srv6',
         platformConfig: item.nextConfig as Record<string, unknown>,
         acknowledgeDrift: true,
         persistPlatform: false,
       });
+      // 设备下发已按 H0 保留现网 VRRP；写库用公式 + 合并稿 VRRP，避免共享账本被剥光
+      item.ledgerConfig = stitchHaVrrpSlice(item.nextConfig, pushResult.mergedConfig);
       pushed.push(item);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -138,7 +143,9 @@ export const revertSrv6TunnelInjections = async (tunnel: SRv6Tunnel): Promise<Re
   try {
     await AppDataSource.transaction(async (manager) => {
       for (const item of prepared) {
-        item.record.config_json = JSON.stringify(item.nextConfig);
+        item.record.config_json = JSON.stringify(
+          item.ledgerConfig ?? stitchHaVrrpSlice(item.nextConfig, item.originalConfig),
+        );
         await manager.save(VRConfig, item.record);
       }
       await manager.delete(SRv6Tunnel, { id: tunnel.id });

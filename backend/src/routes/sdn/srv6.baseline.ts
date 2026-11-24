@@ -2,6 +2,7 @@ import { IsNull } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import { freezeSrv6BaselineJson, stripHaVrrpSlice } from '../../utils/stripVrrpOwnedFields';
 import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { listAliveContributionsForVr } from './srv6.recompute';
 
@@ -38,7 +39,7 @@ export const captureSrv6BaselinesForTunnel = async (
       const result = await vrRepo().update(
         { uuid: vrId, srv6BaselineJson: IsNull() },
         {
-          srv6BaselineJson: record.config_json,
+          srv6BaselineJson: freezeSrv6BaselineJson(record.config_json),
           srv6BaselineAt: now,
           srv6BaselineTunnelId: tunnelId,
         },
@@ -61,7 +62,8 @@ export const parseSrv6Baseline = (record: VRConfig): Record<string, unknown> | n
   if (!raw || typeof raw !== 'string' || !raw.trim()) return null;
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return stripHaVrrpSlice(parsed) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -82,7 +84,7 @@ export const resetSrv6BaselineWhenNoTunnels = async (vrUuid: string): Promise<bo
     const record = await vrRepo().findOne({ where: { uuid: id } });
     if (!record?.config_json) return false;
 
-    record.srv6BaselineJson = record.config_json;
+    record.srv6BaselineJson = freezeSrv6BaselineJson(record.config_json);
     record.srv6BaselineAt = new Date();
     record.srv6BaselineTunnelId = null;
     await vrRepo().save(record);

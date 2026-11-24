@@ -60,6 +60,26 @@ const pe22PeAContrib: Srv6EndpointInjectedDelta = {
 };
 
 describe('srv6.merge', () => {
+  it('strips HA vrrp from formula even when frozen baseline still has it', () => {
+    const dirty = {
+      ...pe22Baseline,
+      vrrp: [{ group_id: 1, vrrp_instance: [1] }],
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/0/0',
+          ipv6_static: '203::22/64',
+          vrrp: [{ vrid: 1, auth_pass: '654321', priority: 200 }],
+        },
+        { name: 'GigabitEthernet 0/0/1', ipv4_static: '101.1.1.1/24', vrf: 9999 },
+      ],
+    };
+    const out = mergeBaselineWithContributions(dirty, []);
+    expect(out.vrrp).toBeUndefined();
+    const wan = (out.interfaces_GigabitEthernet as Array<Record<string, unknown>>)[0];
+    expect(wan.vrrp).toBeUndefined();
+    expect(wan.ipv6_static).toBe('203::22/64');
+  });
+
   it('M1: baseline only equals baseline (empty ipv6_route normalized)', () => {
     const out = mergeBaselineWithContributions(pe22Baseline, []);
     expect(out).toEqual({ ...pe22Baseline, ipv6_route: [] });

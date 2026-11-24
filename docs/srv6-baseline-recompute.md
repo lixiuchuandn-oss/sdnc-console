@@ -104,8 +104,9 @@
 
 | 函数 | 时机 |
 |------|------|
-| `captureSrv6BaselinesForTunnel` | 隧道 **首次** sync 前；若 VR 尚无基线，将当前 `config_json` 写入 `srv6BaselineJson`（仅写一次） |
-| `resetSrv6BaselineWhenNoTunnels` | 某 VR **无存活隧道** 时，将基线对齐为当前 `config_json` |
+| `captureSrv6BaselinesForTunnel` | 隧道 **首次** sync 前；若 VR 尚无基线，将当前 `config_json` **剥掉 HA VRRP 片后**写入 `srv6BaselineJson`（仅写一次） |
+| `resetSrv6BaselineWhenNoTunnels` | 某 VR **无存活隧道** 时，将基线对齐为当前 `config_json`（同样剥掉 HA VRRP，避免把 HA 冻结进 SRv6 公式） |
+| `stitchHaVrrpSlice`（写回共享账本） | 删隧道 / `persistSrv6VrEffectiveConfig` / 孤儿基线修复：公式无 VRRP，写 `config_json` 前从设备合并稿或原账本缝回 HA 片；**不**读 HA 组意图 |
 | `forceResetSrv6BaselineFromConfig` | 管理员 API；须零隧道，否则 409 |
 
 ---

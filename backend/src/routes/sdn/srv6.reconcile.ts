@@ -6,7 +6,7 @@ import {
   diffConfigSemantic,
   formatConfigSemanticDiffs,
 } from '../../utils/configSemanticEqual';
-import { stripVrrpOwnedFields } from '../../utils/stripVrrpOwnedFields';
+import { stitchHaVrrpSlice, stripVrrpOwnedFields } from '../../utils/stripVrrpOwnedFields';
 import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { parseSrv6Baseline } from './srv6.baseline';
 import { listAliveContributionsForVr, recomputeVrEffectiveConfig } from './srv6.recompute';
@@ -164,7 +164,8 @@ export const reconcileSrv6Vr = async (
         await withSqliteWriteLock(`srv6-vr:${id}`, async () => {
           const row = await vrRepo().findOne({ where: { uuid: id } });
           if (!row) return;
-          row.config_json = JSON.stringify(baseline);
+          // 基线无 VRRP；缝上当前账本 HA 片，避免对账修复抹掉邻域
+          row.config_json = JSON.stringify(stitchHaVrrpSlice(baseline, actual));
           await vrRepo().save(row);
         });
         item.repairActions.push('无存活隧道：已将平台账本写回向导基线（未下发设备，未改基线）');

@@ -98,8 +98,9 @@ const ifaceNdProxyOf = (row: Record<string, unknown>): string =>
   String(row.ipv6_nd_proxy ?? '').trim();
 
 /**
- * SRv6 覆盖会整表替换 interfaces_*，把设备上 HA 留下的接口 vrrp 冲掉，
- * 同时最外层 vrrp（平台基线通常没有该键）仍留在底稿上 → CSM 报 vrrp_instance 找不到 vrid。
+ * SRv6 覆盖会整表替换 interfaces_*。VRRP 只认设备现网：丢掉公式/基线里的接口 vrrp，
+ * 再按接口名拷设备片（设备没有则不下发该字段）。禁止用冻结基线里的旧 auth_pass / priority 盖回。
+ * 顶层 vrrp 在 OTHER_FEATURE_KEYS，overlay 不会动。
  * ipv6_nd_proxy：SRv6 切片不带该字段时保留设备值（防隧道下发冲掉）；
  * 启停/改 SID 由 PE 向导全量或隧道引用下的 ND Proxy 窄通道负责，不经本函数清除。
  */
@@ -119,10 +120,11 @@ const preserveDeviceIfaceVrrpOnSrv6Overlay = (
     merged[key] = mergedIfaces.map((row) => {
       if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
       const cur = row as Record<string, unknown>;
+      const { vrrp: _formulaVrrp, ...withoutFormulaVrrp } = cur;
       const curName = ifaceNameOf(cur);
       const prev = deviceRows.find((d) => ifaceNamesEqualLoose(ifaceNameOf(d), curName));
-      let next = cur;
-      if (!ifaceHasVrrp(next) && prev && ifaceHasVrrp(prev)) {
+      let next: Record<string, unknown> = withoutFormulaVrrp;
+      if (prev && ifaceHasVrrp(prev)) {
         next = { ...next, vrrp: deepClone(prev.vrrp) };
       }
       if (!ifaceNdProxyOf(next) && prev && ifaceNdProxyOf(prev)) {

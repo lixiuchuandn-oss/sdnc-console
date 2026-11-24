@@ -11,6 +11,7 @@ import {
 } from '../../services/vrouter/vrConfigDeploy';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
+import { freezeSrv6BaselineJson } from '../../utils/stripVrrpOwnedFields';
 
 const vrConfigLog = logger.child('VR-Config');
 
@@ -433,7 +434,7 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
       } else if (hasSrv6Baseline && srv6Refs.length === 0) {
         // 无存活隧道：允许向导更新，并刷新基线（P4 前过渡）
         record.config_json = jsonStr;
-        record.srv6BaselineJson = jsonStr;
+        record.srv6BaselineJson = freezeSrv6BaselineJson(jsonStr);
         record.srv6BaselineAt = new Date();
         record.srv6BaselineTunnelId = null;
         await repo.save(record);

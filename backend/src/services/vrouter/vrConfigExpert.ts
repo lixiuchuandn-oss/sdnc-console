@@ -1,6 +1,7 @@
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { findSrv6TunnelsReferencingVr } from '../../routes/sdn/srv6.references';
+import { freezeSrv6BaselineJson } from '../../utils/stripVrrpOwnedFields';
 import { assertCsmUpdateSuccess } from './vrConfigDeploy';
 import { captureRolePreSnapshotIfEmpty } from './rolePreSnapshot';
 import { vrController } from './vrController';
@@ -51,7 +52,7 @@ export async function persistExpertVrConfig(
   if (record) {
     record.config_json = jsonStr;
     if (record.srv6BaselineJson?.trim()) {
-      record.srv6BaselineJson = jsonStr;
+      record.srv6BaselineJson = freezeSrv6BaselineJson(jsonStr);
       record.srv6BaselineAt = new Date();
       record.srv6BaselineTunnelId = null;
     }

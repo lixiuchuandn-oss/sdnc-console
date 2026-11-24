@@ -9,6 +9,7 @@ import {
   parseHubInventoryFromBaseline,
   stripTowerExtensionsFromDeviceBaseline,
 } from './srv6.hubInventory';
+import { stripHaVrrpSlice } from '../../utils/stripVrrpOwnedFields';
 
 export type ConfigJson = Record<string, unknown>;
 
@@ -280,5 +281,6 @@ export const mergeBaselineWithContributions = (
   if (!Array.isArray(result.ipv6_route)) {
     result.ipv6_route = [];
   }
-  return result;
+  // SRv6 公式不拥有 HA VRRP：旧基线冻过的 auth_pass/priority 不得进入下发意图
+  return stripHaVrrpSlice(result) as ConfigJson;
 };

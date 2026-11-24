@@ -166,6 +166,67 @@ describe('vrConfigDeploy', () => {
     expect(wan.ipv6_nd_proxy).toBe('240e:398:8507:1:1::301');
   });
 
+  it('merge srv6 prefers live device vrrp over stale formula vrrp', () => {
+    const deviceVrrp = [
+      {
+        vrid: 1,
+        priority: 200,
+        advert_interval: 1,
+        virtual_ipaddress: ['34.1.1.254/24'],
+        unicast_peer: '34.1.1.4',
+        unicast_source: '34.1.1.3',
+      },
+    ];
+    const staleFormulaVrrp = [{ ...deviceVrrp[0], auth_pass: '654321', priority: 50 }];
+    const device = {
+      vrrp: [{ group_id: 1, vrrp_instance: [1] }],
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '34.1.1.3/24',
+          vrrp: deviceVrrp,
+        },
+      ],
+      bgp: [{ asn: 65000 }],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '34.1.1.3/24',
+          vrrp: staleFormulaVrrp,
+        },
+      ],
+      bgp: [{ asn: 65000, neighbor: [] }],
+      vrrp: [{ group_id: 9, vrrp_instance: [9] }],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    const wan = (merged.interfaces_GigabitEthernet as Array<Record<string, unknown>>)[0];
+    expect(wan.vrrp).toEqual(deviceVrrp);
+    expect(merged.vrrp).toEqual(device.vrrp);
+    expect(merged.bgp).toEqual(platform.bgp);
+  });
+
+  it('merge srv6 drops formula iface vrrp when device has none', () => {
+    const device = {
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/8/0', ipv4_static: '34.1.1.3/24' }],
+      bgp: [{ asn: 65000 }],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '34.1.1.3/24',
+          vrrp: [{ vrid: 1, auth_pass: '654321' }],
+        },
+      ],
+      bgp: [{ asn: 65000 }],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    const wan = (merged.interfaces_GigabitEthernet as Array<Record<string, unknown>>)[0];
+    expect(wan.vrrp).toBeUndefined();
+  });
+
   it('merge srv6 preserves iface vrrp across whitespace name variants and interface key', () => {
     const deviceVrrp = [{ vrid: 1, priority: 200, virtual_ipaddress: ['11.1.1.100/24'] }];
     const device = {

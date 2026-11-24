@@ -92,6 +92,27 @@ describe('persistExpertVrConfig / dispatchExpertVrConfig', () => {
     expect(JSON.parse(String(rows.get('vr-a')?.srv6BaselineJson))).toEqual({ role: 'CE', note: 'x' });
   });
 
+  it('keeps HA vrrp in expert config_json but freezes SRv6 baseline without it', async () => {
+    rows.set('vr-a', {
+      uuid: 'vr-a',
+      config_json: '{"old":1}',
+      srv6BaselineJson: '{"old":1}',
+    });
+    const body = {
+      role: 'CE',
+      vrrp: [{ group_id: 1, vrrp_instance: [1] }],
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/8/0', ipv4_static: '1.1.1.1/24', vrrp: [{ vrid: 1, auth_pass: '654321' }] },
+      ],
+    };
+    await persistExpertVrConfig('vr-a', body);
+    expect(JSON.parse(String(rows.get('vr-a')?.config_json))).toEqual(body);
+    const baseline = JSON.parse(String(rows.get('vr-a')?.srv6BaselineJson));
+    expect(baseline.vrrp).toBeUndefined();
+    expect(baseline.interfaces_GigabitEthernet[0].vrrp).toBeUndefined();
+    expect(baseline.interfaces_GigabitEthernet[0].ipv4_static).toBe('1.1.1.1/24');
+  });
+
   it('does not POST when expert upsert is blocked by tunnels', async () => {
     findRefs.mockResolvedValue([{ tunnelId: 't1', tunnelName: 'tun-a', slot: 'ceA' }]);
     await expect(dispatchExpertVrConfig('vr-a', { bgp: [] })).rejects.toMatchObject({ statusCode: 409 });
