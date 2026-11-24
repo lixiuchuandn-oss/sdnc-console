@@ -297,6 +297,11 @@ async function unregisterAndCleanupPlatform(
   const managementIp = String(row?.managementIp ?? '').trim();
   let registrationFinishCleared = false;
   let registrationClearError: string | undefined;
+
+  // 先清平台管理口记录，再回写设备。设备清 finish 时会作废上次上报缓存并立刻补报；
+  // 若补报发生在清库之前，刚写上的 managementIp 会被随后删掉。
+  await cleanupVrPlatformRows(id);
+
   if (!managementIp) {
     registrationClearError = '无管理口地址，未回写设备清 finish';
   } else {
@@ -316,8 +321,6 @@ async function unregisterAndCleanupPlatform(
       registrationClearError = err instanceof Error ? err.message : String(err);
     }
   }
-
-  await cleanupVrPlatformRows(id);
   return {
     uuid: id,
     deviceReverted,

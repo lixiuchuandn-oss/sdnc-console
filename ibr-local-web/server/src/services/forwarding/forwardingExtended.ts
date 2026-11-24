@@ -1,6 +1,7 @@
 /**
  * 只读/扩展转发能力：BGP、VRF、IPv6 路由、VRRP、路由策略、SRv6、Agent 状态。
  */
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Paths } from '../../vrwizard.js';
@@ -9,6 +10,55 @@ import { isForwardingMock, runClishSingleCommand, runClishStdin, runClishArgv } 
 
 function agentBaseDir(paths: Paths): string {
 	return paths.base ? path.join(paths.base, 'rhos', 'etc', 'agent') : '/rhos/etc/agent';
+}
+
+export function agentRegistrationFinishPath(paths: Paths): string {
+	return path.join(agentBaseDir(paths), '.registration_finish');
+}
+
+export function isAgentRegistrationOnline(paths: Paths): boolean {
+	return fs.existsSync(agentRegistrationFinishPath(paths));
+}
+
+/** 身份载荷变化后清掉 ONLINE 标记，agent 主循环会再 POST /VR1/register。 */
+export function clearAgentRegistrationFinish(paths: Paths): boolean {
+	const finish = agentRegistrationFinishPath(paths);
+	if (!fs.existsSync(finish)) return false;
+	fs.unlinkSync(finish);
+	return true;
+}
+
+function pokeByPattern(pattern: string): boolean {
+	try {
+		const out = execFileSync('pgrep', ['-f', pattern], {
+			encoding: 'utf8',
+			timeout: 3000,
+		});
+		const pids = out
+			.split(/\s+/)
+			.map((s) => s.trim())
+			.filter((s) => /^\d+$/.test(s));
+		let poked = false;
+		for (const pid of pids) {
+			try {
+				process.kill(Number(pid), 'SIGUSR1');
+				poked = true;
+			} catch {
+				/* ignore */
+			}
+		}
+		return poked;
+	} catch {
+		return false;
+	}
+}
+
+export function pokeVrctlAgent(): boolean {
+	return pokeByPattern('^/bin/bash /rhos/etc/agent/vrctl\\.agent');
+}
+
+export function pokeMonitoringAgent(): boolean {
+	return pokeByPattern('/rhos/etc/agent/monitoring\\.agent');
 }
 
 /** monitoring.agent 采集完成后会把 conf/conf.json 移到 conf/monitoring/<timestamp>，需回退读最新快照。 */

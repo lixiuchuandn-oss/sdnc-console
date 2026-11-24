@@ -12,6 +12,7 @@ import { ssoAuthMiddleware } from './middleware/sso.js';
 import { apiRouter } from './routes/api.js';
 import { scheduleManagementIpReporting } from './lib/managementIpReporter.js';
 import { createPublicAccountRouter } from './routes/publicAccountRoutes.js';
+import { createPublicRegistrationRouter } from './routes/publicRegistrationRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +32,7 @@ async function main() {
 		res.json({ ok: true, service: 'paas-vr-console' });
 	});
 	publicRouter.use('/account', createPublicAccountRouter());
+	publicRouter.use('/registration', createPublicRegistrationRouter());
 	app.use('/api/public', publicRouter);
 
 	app.use('/api', requestIdMiddleware, ssoAuthMiddleware, apiRouter());

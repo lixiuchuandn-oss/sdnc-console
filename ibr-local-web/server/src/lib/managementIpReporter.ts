@@ -123,37 +123,106 @@ export async function reportManagementIpToSdnc(opts?: {
 }
 
 let reportTimer: ReturnType<typeof setInterval> | null = null;
+let pendingTimer: ReturnType<typeof setInterval> | null = null;
 let lastReportedIp = '';
+let lastReportedUuid = '';
 
-/** 启动后延迟上报 + 可选周期心跳（管理口变更时重报） */
+/** 周期心跳可跳过「同一 uuid + 同一 IP」；身份保存 / 启动 / 删实例清 finish 必须实报。 */
+export function shouldSkipDuplicateManagementIpReport(opts: {
+	label: string;
+	uuid: string;
+	ip: string;
+	lastUuid: string;
+	lastIp: string;
+}): boolean {
+	if (!opts.ip) return true;
+	if (
+		opts.label === 'startup' ||
+		opts.label === 'identity-save' ||
+		opts.label === 'kick' ||
+		opts.label === 'delete-clear-finish'
+	) {
+		return false;
+	}
+	return Boolean(opts.lastIp) && opts.ip === opts.lastIp && opts.uuid === opts.lastUuid;
+}
+
+/** 出厂清空 uuid 后必须忘掉上次成功上报，否则新 uuid 会因 IP 未变被跳过。 */
+export function invalidateManagementIpReportCache(): void {
+	lastReportedIp = '';
+	lastReportedUuid = '';
+}
+
+function stopPendingRetry(): void {
+	if (pendingTimer) {
+		clearInterval(pendingTimer);
+		pendingTimer = null;
+	}
+}
+
+function ensurePendingRetry(): void {
+	if (pendingTimer) return;
+	const pendingMs = Number(process.env.MANAGEMENT_IP_REPORT_PENDING_MS ?? 10000);
+	if (!Number.isFinite(pendingMs) || pendingMs <= 0) return;
+	pendingTimer = setInterval(() => void runManagementIpReportTick('pending'), pendingMs);
+}
+
+async function runManagementIpReportTick(label: string): Promise<void> {
+	try {
+		const paths = getPaths();
+		const ip = resolveMgmtIpv4(paths);
+		const uuid = readVrUuid(paths).trim();
+		if (
+			shouldSkipDuplicateManagementIpReport({
+				label,
+				uuid,
+				ip,
+				lastUuid: lastReportedUuid,
+				lastIp: lastReportedIp,
+			})
+		) {
+			return;
+		}
+		const result = await reportManagementIpToSdnc({ managementIp: ip || undefined, paths });
+		if (result.ok) {
+			lastReportedIp = result.management_ip;
+			lastReportedUuid = uuid;
+			stopPendingRetry();
+			console.log(`[mgmt-ip-report] ${label}: ${result.management_ip} → SDN Console OK`);
+			return;
+		}
+		if ('skipped' in result && result.skipped) {
+			console.log(`[mgmt-ip-report] ${label}: skipped (${result.reason})`);
+			if (result.reason === 'missing_vr_uuid' || result.reason === 'missing_sdnc_console_base') {
+				ensurePendingRetry();
+			}
+			return;
+		}
+		console.warn(`[mgmt-ip-report] ${label}: ${result.error}`);
+		ensurePendingRetry();
+	} catch (e) {
+		console.warn('[mgmt-ip-report]', e instanceof Error ? e.message : String(e));
+		ensurePendingRetry();
+	}
+}
+
+/** 身份保存 / 出厂 / 删实例清 finish 后立刻补报，不等 5 分钟心跳。 */
+export function kickManagementIpReport(label = 'kick'): void {
+	void runManagementIpReportTick(label);
+}
+
+/** 启动后延迟上报 + 可选周期心跳（管理口或 uuid 变更时重报） */
 export function scheduleManagementIpReporting(): void {
 	const intervalSec = Number(process.env.MANAGEMENT_IP_REPORT_INTERVAL_SEC ?? 300);
 	const startupDelayMs = Number(process.env.MANAGEMENT_IP_REPORT_STARTUP_DELAY_MS ?? 8000);
 
-	const tick = async (label: string) => {
-		try {
-			const paths = getPaths();
-			const ip = resolveMgmtIpv4(paths);
-			if (!ip) return;
-			if (label !== 'startup' && ip === lastReportedIp) return;
-			const result = await reportManagementIpToSdnc({ managementIp: ip, paths });
-			if (result.ok) {
-				lastReportedIp = result.management_ip;
-				console.log(`[mgmt-ip-report] ${label}: ${result.management_ip} → SDN Console OK`);
-			} else if ('skipped' in result && result.skipped) {
-				console.log(`[mgmt-ip-report] ${label}: skipped (${result.reason})`);
-			} else if (!result.ok) {
-				console.warn(`[mgmt-ip-report] ${label}: ${result.error}`);
-			}
-		} catch (e) {
-			console.warn('[mgmt-ip-report]', e instanceof Error ? e.message : String(e));
-		}
-	};
-
-	setTimeout(() => void tick('startup'), Number.isFinite(startupDelayMs) && startupDelayMs >= 0 ? startupDelayMs : 8000);
+	setTimeout(
+		() => void runManagementIpReportTick('startup'),
+		Number.isFinite(startupDelayMs) && startupDelayMs >= 0 ? startupDelayMs : 8000,
+	);
 
 	if (reportTimer) clearInterval(reportTimer);
 	if (Number.isFinite(intervalSec) && intervalSec > 0) {
-		reportTimer = setInterval(() => void tick('interval'), intervalSec * 1000);
+		reportTimer = setInterval(() => void runManagementIpReportTick('interval'), intervalSec * 1000);
 	}
 }

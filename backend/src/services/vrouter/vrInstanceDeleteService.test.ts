@@ -318,6 +318,9 @@ describe('deleteVrInstance', () => {
     });
     expect(clearDeviceRegistration).toHaveBeenCalledWith({ uuid: 'vr-a', managementIp: '10.1.1.1' });
     expect(unregister.mock.invocationCallOrder[0]).toBeLessThan(clearDeviceRegistration.mock.invocationCallOrder[0]);
+    expect(Math.max(...del.mock.invocationCallOrder)).toBeLessThan(
+      clearDeviceRegistration.mock.invocationCallOrder[0],
+    );
     expect(result.registrationFinishCleared).toBe(true);
     expect(result.registrationClearError).toBeUndefined();
     expect(del).toHaveBeenCalled();
