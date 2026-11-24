@@ -12,6 +12,7 @@ import { useConfigFileEditor } from '../../../hooks/useConfigFileEditor';
 import {
 	findNicRoleByPci,
 	normalizeIp,
+	pciToVbrasIfname,
 	resolveNicDisplayIp,
 	resolveWanLanPci,
 	type NicRoleRowLike,
@@ -40,16 +41,6 @@ type StatusResp = {
 	extra_lans?: Array<{ ifname: string; cidr: string }> | null;
 	nic_roles?: { roles?: NicRoleRow[] } | null;
 };
-
-/** 与 VPP `show interface` / vbras CLI 一致：GigabitEthernet2/2/0（无空格）。 */
-function pciToVbrasIfname(pci: string) {
-	const m = /^([0-9a-fA-F]{4}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])$/.exec(pci.trim());
-	if (!m) return '';
-	const bus = Number.parseInt(m[2], 16);
-	const dev = Number.parseInt(m[3], 16);
-	const fn = Number.parseInt(m[4], 10);
-	return `GigabitEthernet${bus}/${dev}/${fn}`;
-}
 
 export function SetIpPage() {
 	const [loading, setLoading] = useState(true);

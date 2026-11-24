@@ -35,7 +35,8 @@ export {
 	fetchVbrasInterfaceTelemetry,
 	buildNicRolesSnapshot,
 } from './nicRolesSnapshot.js';
-export { pciToVppCliIfname, normalizeVppCliIfname } from './pciVpp.js';
+import { pciToVppCliIfname, normalizeVppCliIfname } from './pciVpp.js';
+export { pciToVppCliIfname, normalizeVppCliIfname };
 export { runVbrasCli } from './vbrasCli.js';
 
 export type JsonObject = Record<string, unknown>;
@@ -347,7 +348,43 @@ export type PciNic = {
 	pci: string;
 	ifnames: string[];
 	macs: string[];
+	/** sysfs 驱动名，如 virtio-pci / vfio-pci；无绑定为空串。 */
+	driver?: string;
 };
+
+function readSysfsPciDriver(pci: string): string {
+	if (process.platform === 'win32') return '';
+	const link = path.posix.join('/sys/bus/pci/devices', pci, 'driver');
+	try {
+		if (!exists(link)) return '';
+		return path.basename(fs.realpathSync(link));
+	} catch {
+		return '';
+	}
+}
+
+/** `/status` 的 pci_nics 行：内核名 + 驱动 + 由 PCI 推导的 VPP 口名。 */
+export function describePciNicForStatus(n: PciNic): {
+	pci: string;
+	ifnames: string[];
+	macs: string[];
+	driver: string;
+	vpp_ifname: string;
+} {
+	let vpp_ifname = '';
+	try {
+		vpp_ifname = pciToVppCliIfname(n.pci);
+	} catch {
+		vpp_ifname = '';
+	}
+	return {
+		pci: n.pci,
+		ifnames: Array.isArray(n.ifnames) ? n.ifnames.filter(Boolean) : [],
+		macs: Array.isArray(n.macs) ? n.macs.filter(Boolean) : [],
+		driver: String(n.driver ?? '').trim() || (n.pci ? readSysfsPciDriver(n.pci) : ''),
+		vpp_ifname,
+	};
+}
 
 export type OsNic = {
 	name: string;
@@ -372,8 +409,8 @@ export type SystemStats = {
 function listPciNicsFromSysfsDetailed(): PciNic[] {
 	if (process.platform === 'win32') {
 		return [
-			{ pci: '0000:02:01.0', ifnames: ['enp4s0'], macs: ['ca:ba:80:de:ac:ad'] },
-			{ pci: '0000:03:00.0', ifnames: ['enp5s0'], macs: ['3e:04:1a:53:61:6f'] },
+			{ pci: '0000:02:01.0', ifnames: ['enp4s0'], macs: ['ca:ba:80:de:ac:ad'], driver: 'virtio-pci' },
+			{ pci: '0000:03:00.0', ifnames: ['enp5s0'], macs: ['3e:04:1a:53:61:6f'], driver: 'virtio-pci' },
 		];
 	}
 	const base = '/sys/bus/pci/devices';
@@ -431,7 +468,7 @@ function listPciNicsFromSysfsDetailed(): PciNic[] {
 			}
 		}
 
-		out.push({ pci, ifnames, macs });
+		out.push({ pci, ifnames, macs, driver: readSysfsPciDriver(pci) });
 	}
 
 	out.sort((a, b) => a.pci.localeCompare(b.pci));
@@ -453,13 +490,13 @@ export function listPciNicsDetailed(params: { rolesConf: JsonObject | null }): P
 	if (detailed.length > 0) return detailed;
 
 	const fromRoles = listPciNicsFromRoles(params.rolesConf);
-	if (fromRoles.length > 0) return fromRoles.map((pci) => ({ pci, ifnames: [], macs: [] }));
+	if (fromRoles.length > 0) return fromRoles.map((pci) => ({ pci, ifnames: [], macs: [], driver: readSysfsPciDriver(pci) }));
 
 	const mockBase = defaultMockBase();
 	if (mockBase) {
 		const mockRolesConf = readJsonIfExists(path.join(mockBase, 'usr/local/src/vrconf/nic_roles.conf'));
 		const fromMock = listPciNicsFromRoles(mockRolesConf);
-		if (fromMock.length > 0) return fromMock.map((pci) => ({ pci, ifnames: [], macs: [] }));
+		if (fromMock.length > 0) return fromMock.map((pci) => ({ pci, ifnames: [], macs: [], driver: readSysfsPciDriver(pci) }));
 	}
 	return [];
 }

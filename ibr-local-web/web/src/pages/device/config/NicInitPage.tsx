@@ -8,15 +8,23 @@ import { Card } from '../../../components/Card';
 import { ContentBlock } from '../../../components/ContentBlock';
 import { PageHeader } from '../../../components/PageHeader';
 import { PageStack } from '../../../components/PageStack';
+import {
+	buildUnattachedPciSelectOptions,
+	findNicRoleByPci,
+	formatPciNicSelectLabel,
+	type NicRoleRowLike,
+	type PciNicBrief,
+} from './nicRoleResolve';
 
 type InitMode = 'static' | 'dhcp';
 
 type StatusResp = {
 	init_mode: InitMode;
-	pci_nics: { pci: string }[];
+	pci_nics: PciNicBrief[];
 	mgmt_pci: string | null;
 	nics_initialized: boolean;
 	os_nic_attach_pci: string[] | null;
+	nic_roles?: { roles?: NicRoleRowLike[] } | null;
 	vr_name?: string;
 	net_overview?: {
 		wan?: { name: string; ip: string; source: 'os' | 'vpp'; attached: boolean; gateway?: string | null };
@@ -74,20 +82,25 @@ export function NicInitPage() {
 		};
 	}, [form]);
 
-	const pcis = useMemo(() => (status?.pci_nics ?? []).map((x) => x.pci).filter(Boolean), [status]);
 	const mgmtPci = status?.mgmt_pci ?? null;
+	const roles = status?.nic_roles?.roles ?? [];
+	const labelForPci = (pci: string | null | undefined) => {
+		const p = String(pci ?? '').trim();
+		if (!p) return '-';
+		const nic = (status?.pci_nics ?? []).find((x) => String(x.pci ?? '').trim() === p);
+		return formatPciNicSelectLabel(nic ?? { pci: p }, findNicRoleByPci(roles, p));
+	};
 
-	const options = useMemo(
+	const businessOptionsStatic = useMemo(
 		() =>
-			pcis.map((pci) => ({
-				label: pci === mgmtPci ? `${pci}（默认管理口）` : pci,
-				value: pci,
-				disabled: false,
-			})),
-		[pcis, mgmtPci],
+			buildUnattachedPciSelectOptions({
+				pciNics: status?.pci_nics,
+				mgmtPci,
+				attachedPcis: status?.os_nic_attach_pci,
+				roles,
+			}),
+		[status, mgmtPci, roles],
 	);
-
-	const businessOptionsStatic = useMemo(() => options.filter((o) => o.value !== mgmtPci), [options, mgmtPci]);
 
 	if (loading) {
 		return (
@@ -130,7 +143,8 @@ export function NicInitPage() {
 							<Tag color={status.nics_initialized ? 'success' : 'warning'}>{status.nics_initialized ? '已初始化' : '未初始化'}</Tag>
 							{status.nics_initialized ? (
 								<Typography.Text type="secondary">
-									模式：{status.init_mode === 'dhcp' ? 'DHCP' : '静态'}，已绑定 PCI：{(status.os_nic_attach_pci ?? []).join(', ') || '-'}
+									模式：{status.init_mode === 'dhcp' ? 'DHCP' : '静态'}，已绑定：
+									{(status.os_nic_attach_pci ?? []).map((pci) => labelForPci(pci)).join('；') || '-'}
 								</Typography.Text>
 							) : (
 								<Typography.Text type="secondary">请选择模式与网卡并执行初始化</Typography.Text>
@@ -229,7 +243,7 @@ export function NicInitPage() {
 									<>
 										{mode === 'static' ? (
 											<Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-												管理口默认使用仍在 OS 的物理口（mgmt_pci）：{mgmtPci ?? '-'}
+												管理口默认使用仍在 OS 的物理口：{labelForPci(mgmtPci)}。已纳入业务清单的网卡不再列出。
 											</Typography.Paragraph>
 										) : (
 											<Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
@@ -239,10 +253,13 @@ export function NicInitPage() {
 
 										{mode === 'static' ? (
 											<>
-												<Form.Item label="WAN 口（PCI）" name="wan_pci" rules={[{ required: true, message: '请选择 WAN 口' }]}>
+												<Form.Item label="WAN 口" name="wan_pci" rules={[{ required: true, message: '请选择 WAN 口' }]}>
 													<Select
-														placeholder="选择 PCI"
+														placeholder={businessOptionsStatic.length ? '选择网卡' : '无可用网卡'}
 														options={businessOptionsStatic}
+														optionFilterProp="label"
+														showSearch
+														disabled={businessOptionsStatic.length === 0}
 														onChange={() => {
 															const wan = String(form.getFieldValue('wan_pci') ?? '');
 															const lan = String(form.getFieldValue('lan_pci') ?? '');
@@ -253,9 +270,12 @@ export function NicInitPage() {
 													/>
 												</Form.Item>
 
-												<Form.Item label="LAN 口（PCI）" name="lan_pci" rules={[{ required: true, message: '请选择 LAN 口' }]}>
+												<Form.Item label="LAN 口" name="lan_pci" rules={[{ required: true, message: '请选择 LAN 口' }]}>
 													<Select
-														placeholder="选择 PCI"
+														placeholder={businessOptionsStatic.length ? '选择网卡' : '无可用网卡'}
+														optionFilterProp="label"
+														showSearch
+														disabled={businessOptionsStatic.length === 0}
 														options={businessOptionsStatic.map((o) => {
 															const wan = String(form.getFieldValue('wan_pci') ?? '');
 															const disabled = o.value === wan || o.value === mgmtPci;
@@ -267,7 +287,9 @@ export function NicInitPage() {
 												<Form.Item label="辅助 LAN 口（可选，最多 4 块）" name="extra_pcis">
 													<Select
 														mode="multiple"
-														placeholder="选择需要接管的额外网卡（可选）"
+														placeholder="选择尚未接管的额外网卡（可选）"
+														optionFilterProp="label"
+														showSearch
 														options={businessOptionsStatic
 															.filter((o) => {
 																const wan = String(form.getFieldValue('wan_pci') ?? '');

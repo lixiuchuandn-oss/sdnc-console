@@ -1,6 +1,12 @@
 /** 与 status 身份字段一致：WAN/LAN 只认 state 投影的 wan_pci/lan_pci，禁止 PCI 下标。 */
 
-export type PciNicBrief = { pci?: string; ifnames?: string[]; macs?: string[] };
+export type PciNicBrief = {
+	pci?: string;
+	ifnames?: string[];
+	macs?: string[];
+	driver?: string;
+	vpp_ifname?: string;
+};
 
 export function resolveWanLanPci(params: {
 	wanPci?: string | null;
@@ -16,8 +22,9 @@ export type NicRoleRowLike = {
 	pci?: string;
 	role?: string;
 	attached?: boolean;
-	os?: { speed_grade?: string; speed_mbps?: number | null };
-	vbras?: { ip?: string; speed_grade?: string; speed_mbps?: number | null };
+	mac?: string;
+	os?: { name?: string; speed_grade?: string; speed_mbps?: number | null };
+	vbras?: { name?: string; ip?: string; speed_grade?: string; speed_mbps?: number | null };
 };
 
 /** 按 PCI 查找 nic_roles 行（勿用数组下标，顺序可能与 sysfs 枚举不一致） */
@@ -25,6 +32,65 @@ export function findNicRoleByPci(roles: NicRoleRowLike[] | null | undefined, pci
 	const p = pci.trim();
 	if (!p) return undefined;
 	return (roles ?? []).find((r) => String(r?.pci ?? '').trim() === p);
+}
+
+/** 与 VPP `show interface` / vbras CLI 一致：GigabitEthernet2/2/0（无空格）。 */
+export function pciToVbrasIfname(pci: string): string {
+	const m = /^([0-9a-fA-F]{4}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])$/.exec(pci.trim());
+	if (!m) return '';
+	const bus = Number.parseInt(m[2], 16);
+	const dev = Number.parseInt(m[3], 16);
+	const fn = Number.parseInt(m[4], 10);
+	return `GigabitEthernet${bus}/${dev}/${fn}`;
+}
+
+function firstNonEmptyToken(xs: unknown[] | undefined): string {
+	if (!Array.isArray(xs)) return '';
+	for (const x of xs) {
+		const s = String(x ?? '').trim();
+		if (s && s !== '-') return s;
+	}
+	return '';
+}
+
+/**
+ * 初始化/扩容下拉标签：优先内核网卡名，其次上次 OS 名，再次 VPP 口名，并拼接 PCI、MAC。
+ * 已被 VPP 接管的口没有 ens*，用 GigabitEthernetB/D/F 识别。
+ */
+export function formatPciNicSelectLabel(nic: PciNicBrief | null | undefined, role?: NicRoleRowLike | null): string {
+	const pci = String(nic?.pci ?? '').trim();
+	const liveIf = firstNonEmptyToken(nic?.ifnames);
+	const lastOs = String(role?.os?.name ?? '').trim();
+	const vpp = String(nic?.vpp_ifname ?? '').trim() || (pci ? pciToVbrasIfname(pci) : '');
+	const mac = firstNonEmptyToken(nic?.macs) || String(role?.mac ?? '').trim();
+	const macClean = mac && mac !== '-' ? mac : '';
+	const name = liveIf || lastOs || vpp;
+	const parts: string[] = [];
+	if (name) parts.push(name);
+	if (pci) parts.push(pci);
+	if (macClean) parts.push(macClean);
+	return parts.join(' · ') || pci;
+}
+
+/** 初始化/扩容候选：排除管理口与已纳入业务清单的 PCI。 */
+export function buildUnattachedPciSelectOptions(params: {
+	pciNics: PciNicBrief[] | null | undefined;
+	mgmtPci: string | null | undefined;
+	attachedPcis: string[] | null | undefined;
+	roles?: NicRoleRowLike[] | null;
+}): { label: string; value: string }[] {
+	const attached = new Set((params.attachedPcis ?? []).map((x) => String(x).trim()).filter(Boolean));
+	const mgmt = String(params.mgmtPci ?? '').trim();
+	const out: { label: string; value: string }[] = [];
+	for (const n of params.pciNics ?? []) {
+		const pci = String(n?.pci ?? '').trim();
+		if (!pci || pci === mgmt || attached.has(pci)) continue;
+		out.push({
+			value: pci,
+			label: formatPciNicSelectLabel(n, findNicRoleByPci(params.roles, pci)),
+		});
+	}
+	return out;
 }
 
 export function normalizeIp(s: unknown) {

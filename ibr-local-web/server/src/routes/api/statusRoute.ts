@@ -19,6 +19,7 @@ import {
 	listAvailablePciNics,
 	listOsNics,
 	listPciNicsDetailed,
+	describePciNicForStatus,
 	loadState,
 	normalizeInitMode,
 	normalizeVppCliIfname,
@@ -318,11 +319,9 @@ export function registerStatusRoute(r: Router): void {
 			stats,
 			os_nics: osNics,
 			os_nic_state: osNicState,
-			pci_nics: (pciNicsDetailed.length > 0 ? pciNicsDetailed : pcis.map((pci) => ({ pci, ifnames: [], macs: [] }))).map((n) => ({
-				pci: n.pci,
-				ifnames: n.ifnames,
-				macs: n.macs,
-			})),
+			pci_nics: (pciNicsDetailed.length > 0 ? pciNicsDetailed : pcis.map((pci) => ({ pci, ifnames: [], macs: [] }))).map(
+				describePciNicForStatus,
+			),
 			mgmt_pci: mgmtPci,
 			os_nic_attach_pci: Array.isArray(state.os_nic_attach_pci) ? state.os_nic_attach_pci : null,
 			nics_initialized: nicsInitialized,
