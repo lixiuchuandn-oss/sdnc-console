@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { runHostCmd } from './helpers.js';
 import { applyNetConfig } from '../../services/network/netApply.js';
-import { runClishArgv } from '../../services/forwarding/clishCsm.js';
-import { getPaths, loadState, runVbrasCli, startVbras, stopVbras, waitForVbrasCliSock } from '../../vrwizard.js';
+import { isForwardingMock, runClishArgv } from '../../services/forwarding/clishCsm.js';
+import { getPaths, loadState, runVbrasCli, startVbras, stopVbras, waitForVbrasCliSock, type Paths } from '../../vrwizard.js';
 
 const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 
@@ -72,7 +72,95 @@ export function isDevicePingOk(raw: string): boolean {
 export const parseVbrasPingStats = parseDevicePingStats;
 /** @deprecated 兼容旧名 */
 export const isVbrasPingOk = isDevicePingOk;
-const isPublicGwPingOk = isDevicePingOk;
+
+export type ClishDoPingResult = {
+	ok: boolean;
+	target: string;
+	repeat: number;
+	command: string;
+	raw: string;
+	stats: DevicePingStats;
+	error?: string;
+	invalidTarget?: boolean;
+};
+
+export function buildClishDoPingCmd(target: string, repeat: number): { clishCmd: string; command: string } {
+	const clishCmd = `do ping ${target} repeat ${repeat}`;
+	const command = `/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view --socket=/tmp/konfd.socket -c "${clishCmd}"`;
+	return { clishCmd, command };
+}
+
+function mockLinuxPingOutput(target: string, repeat: number): string {
+	const lines = [`PING ${target} (${target}) 56(84) bytes of data.`];
+	for (let i = 1; i <= repeat; i++) {
+		lines.push(`64 bytes from ${target}: icmp_seq=${i} ttl=64 time=0.200 ms`);
+	}
+	lines.push('');
+	lines.push(`--- ${target} ping statistics ---`);
+	lines.push(`${repeat} packets transmitted, ${repeat} received, 0% packet loss, time ${repeat * 1000}ms`);
+	return lines.join('\n');
+}
+
+/** clish `do ping`（Linux ping via konfd），与 `POST /connectivity/ping` 同一落地。 */
+export async function runClishDoPing(paths: Paths, target: string, repeat: number): Promise<ClishDoPingResult> {
+	const { clishCmd, command } = buildClishDoPingCmd(target, repeat);
+	const emptyStats: DevicePingStats = { sent: null, received: null, packetLoss: null };
+	if (!IPV4_RE.test(target)) {
+		return {
+			ok: false,
+			target,
+			repeat,
+			command,
+			raw: '',
+			stats: emptyStats,
+			error: '目标须为合法 IPv4 地址',
+			invalidTarget: true,
+		};
+	}
+	if (isForwardingMock(paths)) {
+		const raw = mockLinuxPingOutput(target, repeat);
+		return { ok: true, target, repeat, command, raw, stats: parseDevicePingStats(raw) };
+	}
+	// Linux ping 默认 -i 1；不可达时需留足收齐统计行的时间，避免被标成 clish 超时失败
+	const timeoutMs = Math.max(16_000, repeat * 2_500 + 8_000);
+	try {
+		const clishRes = await runClishArgv(['-c', clishCmd], paths, { timeoutMs });
+		const raw = String(clishRes.ok ? clishRes.output : clishRes.output || clishRes.error || '');
+		if (!clishRes.ok && !raw) {
+			return {
+				ok: false,
+				target,
+				repeat,
+				command,
+				raw: '',
+				stats: emptyStats,
+				error: `clish do ping 失败：${clishRes.error}`,
+			};
+		}
+		const stats = parseDevicePingStats(raw);
+		const ok = isDevicePingOk(raw);
+		return {
+			ok,
+			target,
+			repeat,
+			command,
+			raw,
+			stats,
+			...(ok ? {} : { error: clishRes.ok ? '设备 clish do ping 未收到回复' : clishRes.error }),
+		};
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return {
+			ok: false,
+			target,
+			repeat,
+			command,
+			raw: '',
+			stats: emptyStats,
+			error: `clish do ping 失败：${msg}`,
+		};
+	}
+}
 
 export function createVbrasOpsRouter(): Router {
 	const r = Router();
@@ -130,70 +218,36 @@ export function createVbrasOpsRouter(): Router {
 
 	/**
 	 * 设备内连通性探测（konfd/clish），等效于：
-	 * `/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view --socket=/tmp/konfd.socket -c "do ping <ip>"`
-	 * **禁止**调用操作系统 / 宿主 `ping`。
+	 * `/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view --socket=/tmp/konfd.socket -c "do ping <ip> repeat 3"`
+	 * 落地为 Linux ping（enable-view/ping.xml），禁止 Node 直接调宿主 `ping`，也禁止 vbras `cli.sock` 的 VPP ping。
 	 */
 	r.post('/connectivity/ping', async (req, res) => {
 		const target = String(req.body?.target ?? req.body?.ip ?? req.body?.host ?? '').trim();
 		const repeatRaw = Number(req.body?.repeat ?? 3);
 		const repeat = Number.isFinite(repeatRaw) ? Math.min(Math.max(Math.floor(repeatRaw), 1), 20) : 3;
-		const clishCmd = `do ping ${target}`;
-		const command = `/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view --socket=/tmp/konfd.socket -c "${clishCmd}"`;
-		const emptyStats: DevicePingStats = { sent: null, received: null, packetLoss: null };
-
-		if (!IPV4_RE.test(target)) {
-			res.status(400).json({
+		const ping = await runClishDoPing(getPaths(), target, repeat);
+		const status = ping.invalidTarget ? 400 : ping.error && !ping.raw && !ping.ok ? 500 : 200;
+		if (status !== 200) {
+			res.status(status).json({
 				ok: false,
-				target,
-				repeat,
-				stats: emptyStats,
-				raw: '',
-				command,
-				error: '目标须为合法 IPv4 地址',
+				target: ping.target,
+				repeat: ping.repeat,
+				stats: ping.stats,
+				raw: ping.raw,
+				command: ping.command,
+				error: ping.error,
 			});
 			return;
 		}
-
-		const paths = getPaths();
-		try {
-			const timeoutMs = Math.max(8_000, Math.min(repeat, 3) * 3_000 + 5_000);
-			const clishRes = await runClishArgv(['-c', clishCmd], paths, { timeoutMs });
-			const raw = String(clishRes.ok ? clishRes.output : clishRes.output || clishRes.error || '');
-			if (!clishRes.ok && !raw) {
-				res.status(500).json({
-					ok: false,
-					target,
-					repeat,
-					stats: emptyStats,
-					raw: '',
-					command,
-					error: `clish do ping 失败：${clishRes.error}`,
-				});
-				return;
-			}
-			const stats = parseDevicePingStats(raw);
-			const ok = isDevicePingOk(raw);
-			res.json({
-				ok,
-				target,
-				repeat,
-				stats,
-				raw,
-				command,
-				...(ok ? {} : { error: clishRes.ok ? '设备 clish do ping 未收到回复' : clishRes.error }),
-			});
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e);
-			res.status(500).json({
-				ok: false,
-				target,
-				repeat,
-				stats: emptyStats,
-				raw: '',
-				command,
-				error: `clish do ping 失败：${msg}`,
-			});
-		}
+		res.json({
+			ok: ping.ok,
+			target: ping.target,
+			repeat: ping.repeat,
+			stats: ping.stats,
+			raw: ping.raw,
+			command: ping.command,
+			...(ping.ok ? {} : { error: ping.error }),
+		});
 	});
 
 	r.post('/selfcheck', async (req, res) => {
@@ -201,9 +255,7 @@ export function createVbrasOpsRouter(): Router {
 		try {
 			const public_gw = typeof req.body?.public_gw === 'string' ? req.body.public_gw.trim() : '';
 			const cmds: string[] = ['show version', 'show interface', 'show plugin', 'show error'];
-			if (public_gw) cmds.push(`ping ${public_gw} repeat 3`);
-			const out = await runVbrasCli(paths, `${cmds.join('\n')}\n`, 4000);
-			const raw = out.trim();
+			let raw = (await runVbrasCli(paths, `${cmds.join('\n')}\n`, 4000)).trim();
 
 			let ok = true;
 			const reasons: string[] = [];
@@ -237,9 +289,19 @@ export function createVbrasOpsRouter(): Router {
 			checks.push({ name: '系统错误计数', status: err_ok ? 'pass' : 'warning', detail: err_ok ? '错误计数器检查完成' : '无法获取错误计数' });
 
 			if (public_gw) {
-				const ping_ok = isPublicGwPingOk(raw);
-				checks.push({ name: `网关连通性 (${public_gw})`, status: ping_ok ? 'pass' : 'fail', detail: 'Ping 测试公网网关' });
-				if (!ping_ok) {
+				const ping = await runClishDoPing(paths, public_gw, 3);
+				raw = [raw, '=== clish do ping ===', ping.command, ping.raw, ping.error].filter(Boolean).join('\n');
+				const pingDetail = ping.ok
+					? ping.stats.packetLoss
+						? `clish do ping 通，丢包 ${ping.stats.packetLoss}`
+						: 'clish do ping 通'
+					: ping.error || 'clish do ping 未收到回复';
+				checks.push({
+					name: `网关连通性 (${public_gw})`,
+					status: ping.ok ? 'pass' : 'fail',
+					detail: pingDetail,
+				});
+				if (!ping.ok) {
 					ok = false;
 					reasons.push(`网关 ${public_gw} 连通性测试失败`);
 				}

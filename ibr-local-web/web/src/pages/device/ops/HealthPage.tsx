@@ -11,13 +11,30 @@ import { PageStack } from '../../../components/PageStack';
 
 const HEALTH_STEP_REVEAL_MS = 480;
 
+type HealthCheck = { name: string; status: 'pass' | 'warning' | 'fail'; detail: string };
+
 type SelfcheckResp = {
 	ok: boolean;
 	reasons?: string[];
-	checks?: Array<{ name: string; status: 'pass' | 'warning' | 'fail'; detail: string }>;
+	checks?: HealthCheck[];
 	raw?: string;
 	error?: string;
 };
+
+type ConnectivityPingResp = {
+	ok: boolean;
+	target?: string;
+	raw?: string;
+	command?: string;
+	error?: string;
+	stats?: { sent: number | null; received: number | null; packetLoss: string | null };
+};
+
+function pingCheckDetail(ping: ConnectivityPingResp): string {
+	const loss = ping.stats?.packetLoss;
+	if (ping.ok) return loss ? `clish do ping 通，丢包 ${loss}` : 'clish do ping 通';
+	return ping.error || 'clish do ping 未收到回复';
+}
 
 function statusTag(status: 'pass' | 'warning' | 'fail') {
 	if (status === 'pass') return <Tag color="green">通过</Tag>;
@@ -94,8 +111,39 @@ export function HealthPage() {
 		setError(null);
 		setResult(null);
 		try {
-			const { data } = await api.post<SelfcheckResp>('/selfcheck', { public_gw: publicGw.trim() || undefined });
-			setResult(data);
+			const gw = publicGw.trim();
+			const { data } = await api.post<SelfcheckResp>('/selfcheck', {});
+			const checks: HealthCheck[] = Array.isArray(data.checks) ? [...data.checks] : [];
+			const reasons: string[] = Array.isArray(data.reasons) ? [...data.reasons] : [];
+			let ok = Boolean(data.ok);
+			let raw = String(data.raw ?? '');
+
+			if (gw) {
+				let ping: ConnectivityPingResp;
+				try {
+					const res = await api.post<ConnectivityPingResp>('/connectivity/ping', { target: gw, repeat: 3 });
+					ping = res.data;
+				} catch (e) {
+					ping = {
+						ok: false,
+						target: gw,
+						error: e instanceof Error ? e.message : 'clish do ping 失败',
+						raw: '',
+					};
+				}
+				checks.push({
+					name: `网关连通性 (${gw})`,
+					status: ping.ok ? 'pass' : 'fail',
+					detail: pingCheckDetail(ping),
+				});
+				raw = [raw, '=== clish do ping ===', ping.command, ping.raw, ping.error].filter(Boolean).join('\n');
+				if (!ping.ok) {
+					ok = false;
+					reasons.push(`网关 ${gw} 连通性测试失败`);
+				}
+			}
+
+			setResult({ ok, reasons, checks, raw, error: data.error });
 		} catch (e) {
 			setError(e instanceof Error ? e.message : '巡检失败');
 		} finally {
@@ -120,7 +168,7 @@ export function HealthPage() {
 					<Card variant="padded">
 						<Space wrap>
 							<Input
-								placeholder="可选：公网网关（例如 10.0.0.1）"
+								placeholder="可选：探测目标 IPv4（clish do ping）"
 								style={{ width: 320 }}
 								value={publicGw}
 								onChange={(e) => setPublicGw(e.target.value)}
@@ -164,9 +212,9 @@ export function HealthPage() {
 				</ContentBlock>
 			</PageStack>
 
-			<Drawer title="原始输出 — vbras CLI" width={720} open={rawDrawerOpen} onClose={() => setRawDrawerOpen(false)} destroyOnClose={false}>
+			<Drawer title="原始输出 — vbras CLI / clish do ping" width={720} open={rawDrawerOpen} onClose={() => setRawDrawerOpen(false)} destroyOnClose={false}>
 				<Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-					以下为最近一次「开始巡检」返回的原始文本，便于对照步骤结果排障。
+					前半段为 vbras show 回显；若填了探测目标，后半段为 clish do ping（Linux ping）命令与回显。
 				</Typography.Paragraph>
 				<pre className="app-code-block app-code-block-full">{result?.raw?.trim() ? result.raw : '（暂无，请先执行巡检）'}</pre>
 			</Drawer>
