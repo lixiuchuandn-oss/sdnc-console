@@ -62,7 +62,7 @@ function slotsOf(t: Srv6TunnelEndpointLite, uuid: string): string[] {
 }
 
 /**
- * 软提示：成员已是存活隧道端点时，建组不会自动改隧道指纹。
+ * 软提示：成员已是存活隧道端点时，建组不改隧道端点，但会标注 HA 组指纹。
  */
 export function buildHaMemberTunnelEndpointWarnings(
   tunnels: Srv6TunnelEndpointLite[],
@@ -86,7 +86,7 @@ export function buildHaMemberTunnelEndpointWarnings(
     if (seen.has(key)) continue;
     seen.add(key);
     warnings.push(
-      `${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组不会改隧道端点。`,
+      `${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组不会改隧道端点，但会同步标注 HA 组信息。`,
     );
   }
   return warnings;

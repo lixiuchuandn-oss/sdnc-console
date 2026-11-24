@@ -61,7 +61,7 @@ export function buildHaMemberTunnelEndpointWarnings(
 		}
 		if (!hits.length) continue;
 		warnings.push(
-			`${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组不会改隧道端点。`,
+			`${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组不会改隧道端点，但会同步标注 HA 组信息。`,
 		);
 	}
 	return warnings;

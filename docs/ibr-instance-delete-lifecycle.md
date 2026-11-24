@@ -158,7 +158,7 @@ VR2 什么时候才会被清：
 
 SRv6 与 HA 是两类独立绑定。隧道端点是所选 CE；`haGroupId` 只是指纹 **标注**，隧道不拥有、不回退 VRRP。
 
-**现网（2026-11-16）**：解散 HA **不再**因隧道指纹 409。`ibrHaGroupService.remove` 在设备回退成功后调用 `detachSrv6TunnelsFromHaGroup`，剥掉隧道上的 `haGroupId` / `haGroupName` / `backupVrUuid`，SRv6 增量不动。CE 仍属某组时保存隧道仍须写标注（归属展示），组删掉后标注被剥离即可。**R1 起设备回退不可关**（§19.2）。
+**现网（2026-11-16）**：解散 HA **不再**因隧道指纹 409。`ibrHaGroupService.remove` 在设备回退成功后调用 `detachSrv6TunnelsFromHaGroup`，剥掉隧道上的 `haGroupId` / `haGroupName` / `backupVrUuid`，SRv6 增量不动。**2026-11-24**：先有隧道再建模组时，`create` / `update` / `replaceMembers` 调用 `attachSrv6TunnelsToHaGroup` 把标注写回已有隧道；SRv6 列表 GET 再按现网成员叠加组名。CE 仍属某组时保存隧道仍须写标注（归属展示），组删掉后标注被剥离即可。**R1 起设备回退不可关**（§19.2）。
 
 删 VR 的门闩问三件独立的事：还是不是隧道端点、还是不是 HA 成员、还是不是 IPsec 本端或对端。三者都空才能收口。**不存在**「必须先删光隧道才能解散 HA」。IPsec 先走现有删除，不在删 VR 里拆对端。HA 成员可解散组，或经 `replaceMembers` 换掉该成员。
 
@@ -507,6 +507,7 @@ IBR 实例列表的「状态」（运行中/已停止）来自 VR3 健康，与�
 | 2026-11-17 | 评审硬规则写入 §3/§6；IPsec 门闩字段写死；§8 调整为 E→C0→F→A/B→C/D；新增 **§18 开发落地计划与回归** |
 | 2026-11-17 | **基线**：捕获只在「尚无角色」时发生，禁止补录；回退改走 `updateVRConfig` 并等到 `applied` 再注销；去掉回退勾选与 `pushVRConfig` |
 | 2026-11-18 | **R1**：SRv6 / HA / 删实例取消「仅删除平台」；删除必回退设备。无 Layer −1 改为拒绝删除。见 **§19**。不处理 R1 之前已留下的设备残留 |
+| 2026-11-24 | 建组方向补 `attachSrv6TunnelsToHaGroup`，与解散 detach 对称；SRv6 列表按现网 HA 成员展示组名 |
 
 ---
 

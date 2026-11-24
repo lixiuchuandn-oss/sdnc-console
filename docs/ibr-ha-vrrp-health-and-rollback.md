@@ -29,7 +29,7 @@ CE / 标准模式的 **高可用组** 有独立意图（`vrrpIntent`）和独立
 | 组状态 | 双端成功 `configured`；仅主成功 `degraded`。列表「生命周期」即此字段 |
 | 配置健康 | `GET /api/ibr-ha-groups?includeHealth=1`、`GET .../:id/health`：主备本组 vrrp 片 ≟ 意图物化；不写进 SRv6 `configHealth` |
 | 配置对账 | `POST /api/ibr-ha-groups/reconcile`：扫描；`repair: true` 以意图重新 `deploy({ acknowledgeDrift: true })`（写设备），禁止用设备片回写 `vrrpIntent` |
-| 创建/换成员 | 主备若是**同一条隧道**的 CE-A/CE-B（或对调）→ **409**；成员已是隧道端点 → **允许**，响应 `warnings` 提示 |
+| 创建/换成员 | 主备若是**同一条隧道**的 CE-A/CE-B（或对调）→ **409**；成员已是隧道端点 → **允许**，响应 `warnings` 提示；创建/改名/换成员会 `attachSrv6TunnelsToHaGroup` 回写指纹（列表 GET 再按现网成员叠加展示） |
 | 解散 | `DELETE /api/ibr-ha-groups/:id`：**必须**先剥主备 VR2 本组 vrrp，备失败则补偿主侧，成功再删库（H1 + 2026-11-18 R1）。不带参数即回退；`?revertDevice=false` → 400。隧道指纹只是标注：`remove()` 在设备回退后调用 `detachSrv6TunnelsFromHaGroup`，剥掉 `haGroupId` / `haGroupName` / `backupVrUuid`，**不再**因指纹 409，SRv6 增量不动。与删实例顺序见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) §5.1 / §19 |
 | 隧道创建 | **始终直接选 CE 设备**（与标准四端相同）。若 CE 属于 HA 组，指纹标注 `haGroupId`/`backupVrUuid`（同组另一台）；可对主或备建隧道并下发。**不**强制两端同为 HA；**不**推 VRRP |
 | SRv6 健康 | 账本 ≟ 基线 + 存活隧道；比较时去掉顶层/接口 `vrrp`（H0 回写账本不构成黄标） |
@@ -192,7 +192,7 @@ HA 下发/回退      只动本组 vrrp 片
 | 健康比较 | `haGroupHealth.ts`（子集 equal + 下发漂移）；单测 `haGroupHealth.test.ts` |
 | 物化 | `haGroupVrrpMaterialize.ts`：`extractHaGroupVrrpSubset` / `stripHaGroupVrrpFromDeviceConfig` |
 | 下发网关 | `vrConfigDeploy.ts`：SRv6 保留 VRRP（H0）；HA 走 `preMergedConfig` + 组级子集漂移 |
-| 隧道指纹 | `SRv6Tunnel.endpointFingerprint.*.haGroupId`；解散时 `detachSrv6TunnelsFromHaGroup`（`findSrv6TunnelsReferencingHaGroup` 仅查询，不再作拒绝门闩） |
+| 隧道指纹 | `SRv6Tunnel.endpointFingerprint.*.haGroupId`；建组/改名/换成员 `attachSrv6TunnelsToHaGroup`，解散 `detachSrv6TunnelsFromHaGroup`（`findSrv6TunnelsReferencingHaGroup` 仅查询，不再作拒绝门闩）；SRv6 列表 GET 按现网成员叠加 `haGroupName` |
 | 隧道 error | `srv6.delete.ts` 写入；复位不要放进 HA `remove` |
 | E2E | `tests/e2e-manifest.cjs` 登记 HA 健康 / 解散回退 |
 
@@ -235,6 +235,7 @@ HA 下发/回退      只动本组 vrrp 片
 | 2026-11-16 | 注明：解散 409 为当时实现；允许刷指纹的分析未接线 |
 | 2026-11-16 | **接线**：`ibrHaGroupService.remove` 调用 `detachSrv6TunnelsFromHaGroup`；解散不再因指纹 409 |
 | 2026-11-18 | **R1**：解散取消「只删平台」；必须剥本组 VRRP。详见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) §19.2 |
+| 2026-11-24 | 建组方向补 `attachSrv6TunnelsToHaGroup`（与解散 detach 对称）；SRv6 列表按现网 HA 成员展示组名 |
 
 ---
 
@@ -254,7 +255,7 @@ VRRP        仍走高可用组向导（domain=vrrp）
 | 指纹 | 若 CE 属于 HA 组：写 `haGroupId`/`haGroupName`/`backupVrUuid`（= 同组另一台） |
 | 校验 | 有标注时端点须为该组成员且 peer 一致；允许一端有标注、一端无。CE 属于某组时须写标注（归属展示；组解散后标注会被剥掉）。**拒绝**同一组主备作为一条隧道的 CE-A/CE-B |
 | 增量 CLI | 写入所选 CE 的 `injectedDelta`，经 `domain=srv6` 推送；H0 保留设备 VRRP；SRv6 漂移比较忽略 VRRP |
-| 删除/健康 | 扫隧道四端（所选 CE）；解散 HA **反向剥离** `haGroupId` 指纹，不 409。CE 仍属某组时保存隧道仍须写标注 |
+| 删除/健康 | 扫隧道四端（所选 CE）；解散 HA **反向剥离** `haGroupId` 指纹，不 409。建组/改名/换成员 **正向回写** 标注。CE 仍属某组时保存隧道仍须写标注 |
 | VRRP | 不进 SRv6 公式 |
 
 落点：`srv6.haBinding.ts`、`Create.tsx`、`srv6CeHaGroupLib.ts`（`lookupHaAnnotationByVrUuid`）、`srv6Archive.ts`。

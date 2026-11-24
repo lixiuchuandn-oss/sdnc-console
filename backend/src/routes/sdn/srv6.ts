@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
+import { IbrHaGroup } from '../../entities/vRouter/IbrHaGroup';
 import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import {
@@ -39,10 +40,19 @@ import {
   validateSrv6VrEndpointsForCreate,
 } from './srv6.validation';
 import { assertSrv6TunnelHaCePair } from './srv6.haBinding';
+import {
+  buildCeHaAnnotationIndex,
+  presentSrv6TunnelsWithLiveHa,
+} from '../../services/vrouter/haGroupTunnelMetadata';
 
 export const srv6Routes = Router();
 const repo = () => AppDataSource.getRepository(SRv6Tunnel);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
+
+async function loadCeHaAnnotationIndex() {
+  const groups = await AppDataSource.getRepository(IbrHaGroup).find({ relations: ['members'] });
+  return buildCeHaAnnotationIndex(groups);
+}
 
 const applyArchiveToTunnelEntity = (
   entity: SRv6Tunnel,
@@ -90,17 +100,19 @@ srv6Routes.get('/', async (req, res, next) => {
       }
     }
     const list = await repo().find({ order: { createdAt: 'DESC' } });
+    const haIndex = await loadCeHaAnnotationIndex();
+    const presented = presentSrv6TunnelsWithLiveHa(list, haIndex);
     const includeHealth =
       String(req.query.includeHealth || '') === '1' ||
       String(req.query.includeHealth || '').toLowerCase() === 'true';
     if (!includeHealth) {
-      res.json(list);
+      res.json(presented);
       return;
     }
     const summaries = await buildSrv6TunnelHealthSummaries(list);
     // 配置健康只读对账，不得在 GET 上把 lifecycle status 写回 available（见 ibr-ha-vrrp-health-and-rollback §7）
     res.json(
-      list.map((t) => {
+      presented.map((t) => {
         const h = summaries[t.id];
         return {
           ...t,
@@ -633,7 +645,9 @@ srv6Routes.get('/:id', async (req, res, next) => {
       res.status(404).json({ message: '未找到隧道' });
       return;
     }
-    res.json(item);
+    const haIndex = await loadCeHaAnnotationIndex();
+    const [presented] = presentSrv6TunnelsWithLiveHa([item], haIndex);
+    res.json(presented);
   } catch (e) {
     next(e);
   }

@@ -44,7 +44,11 @@ import {
   assertHaMembersNotOppositeCesOnSameTunnel,
   collectHaMemberTunnelEndpointWarnings,
 } from './haGroupTunnelGate';
-import { detachSrv6TunnelsFromHaGroup } from './haGroupTunnelMetadata';
+import {
+  attachSrv6TunnelsToHaGroup,
+  detachSrv6TunnelsFromHaGroup,
+  type HaGroupSrv6AttachSpec,
+} from './haGroupTunnelMetadata';
 
 const HA_GROUP_ELIGIBLE_ROLES = new Set(['CE', '标准']);
 
@@ -414,6 +418,35 @@ function attachHealth(view: IbrHaGroupView, report: HaGroupHealthReport): IbrHaG
   };
 }
 
+function attachSpecFromGroup(
+  group: Pick<IbrHaGroup, 'id' | 'name'> & { members?: IbrHaGroupMember[] },
+  uuids?: { primaryUuid: string; backupUuid: string },
+): HaGroupSrv6AttachSpec | null {
+  const primaryUuid = normalizeUuid(
+    uuids?.primaryUuid || group.members?.find((m) => m.role === 'primary')?.vrUuid || '',
+  );
+  const backupUuid = normalizeUuid(
+    uuids?.backupUuid || group.members?.find((m) => m.role === 'backup')?.vrUuid || '',
+  );
+  if (!group.id || !primaryUuid || !backupUuid || primaryUuid === backupUuid) return null;
+  return {
+    groupId: group.id,
+    groupName: group.name,
+    primaryUuid,
+    backupUuid,
+  };
+}
+
+async function annotateSrv6TunnelsForHaGroup(
+  group: Pick<IbrHaGroup, 'id' | 'name'> & { members?: IbrHaGroupMember[] },
+  repository: Parameters<typeof attachSrv6TunnelsToHaGroup>[0],
+  uuids?: { primaryUuid: string; backupUuid: string },
+): Promise<void> {
+  const spec = attachSpecFromGroup(group, uuids);
+  if (!spec) return;
+  await attachSrv6TunnelsToHaGroup(repository, spec);
+}
+
 async function toView(group: IbrHaGroup): Promise<IbrHaGroupView> {
   const members = group.members?.length
     ? group.members
@@ -617,6 +650,10 @@ export const ibrHaGroupService = {
 
       const saved = await gRepo.findOne({ where: { id: created.id }, relations: ['members'] });
       if (!saved) throw new IbrHaGroupError('创建失败', 500);
+      await annotateSrv6TunnelsForHaGroup(saved, manager.getRepository(SRv6Tunnel), {
+        primaryUuid,
+        backupUuid,
+      });
       return toView(saved);
     });
     return { group, warnings };
@@ -661,6 +698,7 @@ export const ibrHaGroupService = {
     }
 
     await groupRepo().save(group);
+    await annotateSrv6TunnelsForHaGroup(group, AppDataSource.getRepository(SRv6Tunnel));
     return toView(group);
   },
 
@@ -704,6 +742,12 @@ export const ibrHaGroupService = {
       }
       const refreshed = await gRepo.findOne({ where: { id }, relations: ['members'] });
       if (!refreshed) throw new IbrHaGroupError('HA 组不存在', 404);
+      const tunnelRepo = manager.getRepository(SRv6Tunnel);
+      await detachSrv6TunnelsFromHaGroup(tunnelRepo, id);
+      await annotateSrv6TunnelsForHaGroup(refreshed, tunnelRepo, {
+        primaryUuid,
+        backupUuid,
+      });
       return toView(refreshed);
     });
     return { group: view, warnings };
