@@ -200,6 +200,22 @@ function interfaces.collect_vrrp_keep_addrs(vrrp)
     return keep
 end
 
+-- 合并 keep 集合（撕 VRRP 时 new 为空，仍须暂留 cur 的 VIP）
+function interfaces.merge_keep_addrs(a, b)
+    local keep = {}
+    if a then
+        for addr, _ in pairs(a) do
+            keep[addr] = true
+        end
+    end
+    if b then
+        for addr, _ in pairs(b) do
+            keep[addr] = true
+        end
+    end
+    return keep
+end
+
 -- 以 VR2 意图为准：清掉口上多余地址，再写入期望地址（含期望为空时全清）
 function interfaces.sync_interface_v4addr(interface_name, desired, keep)
     desired = interfaces.normalize_addr(desired)
@@ -343,7 +359,10 @@ function interfaces.compare_interface_part(cur_table, new_table)
         --命令行删除vrf时会将一些配置一起删除
         interfaces.del_interface_vrf(cur_table.name)
         interfaces.add_interface_vrf(cur_table.name, new_table.vrf)
-        local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
+        local keep = interfaces.merge_keep_addrs(
+            interfaces.collect_vrrp_keep_addrs(cur_table.vrrp),
+            interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
+        )
         interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
         interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
         interfaces.sync_interface_nd_proxy(cur_table.name, nil, new_table.ipv6_nd_proxy)
@@ -354,8 +373,15 @@ function interfaces.compare_interface_part(cur_table, new_table)
         end
         interfaces.set_interface_status(cur_table.name, new_table.status)
     else
-        -- 始终按 new（VR2 意图）同步地址，不依赖 bak 是否记录过本地残留地址
-        local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
+        -- 始终按 new（VR2 意图）同步地址，不依赖 bak 是否记录过本地残留地址。
+        -- 解散 HA / 撕 VRRP 时 new.vrrp 为空，但 MASTER 上 VIP 仍在 live：
+        -- 若用 no ip address 清 VIP，konfd 会连带丢掉同口 primary（VPP 仍保留）。
+        -- 故 keep 须含 cur 的 VIP，交给后续 compare_interface_vrrp_part 用
+        -- no vrrp vrid … virtual_ipaddress 正规拆除。
+        local keep = interfaces.merge_keep_addrs(
+            interfaces.collect_vrrp_keep_addrs(cur_table.vrrp),
+            interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
+        )
         interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
         interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
         interfaces.sync_interface_nd_proxy(cur_table.name, cur_table.ipv6_nd_proxy, new_table.ipv6_nd_proxy)
