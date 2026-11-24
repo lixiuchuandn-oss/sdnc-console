@@ -125,6 +125,8 @@ export type IbrHaGroupLiveMember = {
 	trackCommand: string | null;
 	/** track 目标网关；多组时逗号拼接 */
 	trackGateway?: string | null;
+	/** false：本组 show vrrp instances 未读到，角色展示「未读到」而不是「无」 */
+	instancesReadable?: boolean;
 };
 
 export type IbrHaGroupLiveReport = {

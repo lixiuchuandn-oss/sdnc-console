@@ -151,6 +151,57 @@ VRRP Sync Group = 2, BACKUP
     expect(rows[1].trackGateway).toBe('12.1.1.2');
   });
 
+  it('parses CE1 clish dump with prompts and comma ping interval', () => {
+    const instances = parseVrrpInstancesShow(`
+(config)# do show vrrp instances
+VRRP Instance = 1
+  Sync group = 1
+  State = MASTER
+  Using src_ip = 12.1.1.1
+  Virtual Router ID = 1
+  Priority = 200
+  Preempt = enabled
+  Virtual IP = 1
+    12.1.1.254/24 dev GigabitEthernet0/8/0 scope global set
+(config)#
+`);
+    expect(instances).toHaveLength(1);
+    expect(instances[0].state).toBe('MASTER');
+    expect(instances[0].vrid).toBe(1);
+    expect(instances[0].virtualIps).toEqual(['12.1.1.254/24']);
+    expect(instances[0].vipInstalled).toBe(true);
+
+    const groups = parseVrrpGroupsShow(`
+(config)# do show vrrp groups
+VRRP Sync Group = 1, MASTER
+  VRRP member instances = 1
+    1
+  Using smtp notification = no
+  Tracked scripts = 1
+    gateway_chk1-34113 weight -253
+-------< VRRP Scripts >-------
+VRRP Script = gateway_chk1-34113
+  Command = '/usr/bin/ping' '-i' '0,2' '-c' '1' '34.1.1.3'
+  Interval = 1 sec
+  Timeout = 1 sec
+  Weight = 0
+  Rise = 1
+  Fall = 3
+  Insecure = no
+  Status = GOOD
+  Script uid:gid = 0:0
+  VRRP instances = 1
+    1, weight -253
+    State = idle
+(config)#
+`);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].state).toBe('MASTER');
+    expect(groups[0].scriptStatus).toBe('GOOD');
+    expect(groups[0].trackGateway).toBe('34.1.1.3');
+    expect(groups[0].memberInstances).toEqual([1]);
+  });
+
   it('fails a group when any tracked script is not GOOD', () => {
     const rows = parseVrrpGroupsShow(`
 VRRP Sync Group = 1, MASTER

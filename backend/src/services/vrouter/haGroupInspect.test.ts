@@ -61,6 +61,7 @@ function member(
     trackCommand: null,
     trackGateway: null,
     groupsReadable: true,
+    instancesReadable: true,
     trackIncomplete: false,
     instances: [],
     groups: [],
@@ -307,6 +308,107 @@ VRRP Sync Group = 1, MASTER
       member('backup', { state: 'BACKUP', vipInstalled: false }),
     ]);
     expect(steps.find((s) => s.key === 'track')?.status).toBe('skip');
+  });
+
+  it('rejects single foreign VRID instance instead of false-positive own', () => {
+    const snap = snapshotFromVrrpPayload({
+      role: 'primary',
+      vrUuid: 'vr-a',
+      name: 'CE1',
+      data: {
+        instancesRaw: `
+VRRP Instance = 1
+  Sync group = 9
+  State = MASTER
+  Virtual Router ID = 9
+    9.1.1.254/24 dev GigabitEthernet0/8/0 scope global set
+`,
+        groupsRaw: GROUPS_GOOD,
+      },
+      vrids,
+      groupIds,
+    });
+    expect(snap.instancesReadable).toBe(false);
+    expect(snap.state).toBeNull();
+    expect(snap.virtualIps).toEqual([]);
+    expect(snap.groupsReadable).toBe(true);
+    expect(snap.trackStatus).toBe('GOOD');
+  });
+
+  it('keeps bare instance only when VRID and Sync group lines are both absent', () => {
+    const snap = snapshotFromVrrpPayload({
+      role: 'primary',
+      vrUuid: 'vr-a',
+      name: 'CE1',
+      data: {
+        instancesRaw: `
+VRRP Instance = 1
+  State = MASTER
+    12.1.1.254/24 dev GigabitEthernet0/8/0 scope global set
+`,
+        groupsRaw: GROUPS_GOOD,
+      },
+      vrids,
+      groupIds,
+    });
+    expect(snap.instancesReadable).toBe(true);
+    expect(snap.state).toBe('MASTER');
+    expect(snap.memberVrids).toEqual([1]);
+    expect(snap.virtualIps).toEqual(['12.1.1.254/24']);
+  });
+
+  it('keeps instance when Virtual Router ID is missing but Sync group is owned', () => {
+    const snap = snapshotFromVrrpPayload({
+      role: 'primary',
+      vrUuid: 'vr-a',
+      name: 'CE1',
+      data: {
+        instancesRaw: `
+VRRP Instance = 1
+  Sync group = 1
+  State = MASTER
+    12.1.1.254/24 dev GigabitEthernet0/8/0 scope global set
+`,
+        groupsRaw: GROUPS_GOOD,
+      },
+      vrids,
+      groupIds,
+    });
+    expect(snap.instancesReadable).toBe(true);
+    expect(snap.state).toBe('MASTER');
+    expect(snap.virtualIps).toEqual(['12.1.1.254/24']);
+    expect(snap.vipInstalled).toBe(true);
+    expect(snap.memberVrids).toEqual([1]);
+  });
+
+  it('fails role/vip as unread instances when groups arrive without instances', () => {
+    const snap = snapshotFromVrrpPayload({
+      role: 'primary',
+      vrUuid: 'vr-a',
+      name: 'CE1',
+      data: { instancesRaw: '', groupsRaw: GROUPS_GOOD },
+      vrids,
+      groupIds,
+    });
+    expect(snap.reachable).toBe(true);
+    expect(snap.instancesReadable).toBe(false);
+    expect(snap.groupsReadable).toBe(true);
+    expect(snap.state).toBeNull();
+    expect(snap.trackStatus).toBe('GOOD');
+    const steps = evaluateHaLiveSteps([
+      snap,
+      member('backup', {
+        state: 'BACKUP',
+        instancesReadable: true,
+        virtualIps: ['12.1.1.254/24'],
+        trackStatus: 'GOOD',
+      }),
+    ]);
+    expect(steps.find((s) => s.key === 'role')?.status).toBe('fail');
+    expect(steps.find((s) => s.key === 'role')?.message).toMatch(/show vrrp instances/);
+    expect(steps.find((s) => s.key === 'vip')?.status).toBe('fail');
+    expect(steps.find((s) => s.key === 'vip')?.message).toMatch(/show vrrp instances/);
+    expect(steps.find((s) => s.key === 'track')?.status).toBe('pass');
   });
 
   it('marks device without show vrrp as unreachable', () => {

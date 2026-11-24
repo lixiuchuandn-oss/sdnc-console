@@ -100,6 +100,18 @@ function finalizeClishResult(res: ClishResult): ClishResult {
 	return res;
 }
 
+/** konfd `--lock` 与 keepalived dump 都不可并行；进程内串行所有 clish。 */
+let clishTail: Promise<unknown> = Promise.resolve();
+
+function enqueueClish<T>(fn: () => Promise<T>): Promise<T> {
+	const run = clishTail.then(fn, fn);
+	clishTail = run.then(
+		() => undefined,
+		() => undefined,
+	);
+	return run;
+}
+
 /** `-c context` + `-c subcmd`（与 agent lua 脚本一致）。 */
 export async function runClishContextCommand(contextCmd: string, subCmd: string, paths: Paths): Promise<ClishResult> {
 	return finalizeClishResult(await runClishArgv(['-c', contextCmd, '-c', subCmd], paths));
@@ -118,6 +130,10 @@ export function runClishStdin(commands: string, paths: Paths): Promise<ClishResu
 	if (!fs.existsSync(CLISH)) {
 		return Promise.resolve({ ok: false, error: `Executable not found: ${CLISH}` });
 	}
+	return enqueueClish(() => runClishStdinExec(commands));
+}
+
+function runClishStdinExec(commands: string): Promise<ClishResult> {
 	const args = ['-x', ENABLE_VIEW, '-w', 'configure-view', '--lock', '--log', `--socket=${KONF_SOCKET}`];
 	return new Promise((resolve) => {
 		let settled = false;
@@ -178,6 +194,10 @@ export async function runClishArgv(
 	if (!fs.existsSync(CLISH)) {
 		return { ok: false, error: `Executable not found: ${CLISH}. Please check VBRAS installation.` };
 	}
+	return enqueueClish(() => runClishArgvExec(argv, opts));
+}
+
+async function runClishArgvExec(argv: string[], opts?: { timeoutMs?: number }): Promise<ClishResult> {
 	const args = ['--lock', '--log', '-x', ENABLE_VIEW, '-w', 'configure-view', `--socket=${KONF_SOCKET}`, ...argv];
 	try {
 		const { stdout } = await execFileAsync(CLISH, args, {

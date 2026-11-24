@@ -52,6 +52,8 @@ export type HaLiveMemberSnapshot = {
   trackGateway: string | null;
   /** show vrrp groups 是否解析到 Sync Group（失败时 track 不得 skip） */
   groupsReadable: boolean;
+  /** show vrrp instances 是否解析到本组实例（失败时角色/VIP 不得当成「无」） */
+  instancesReadable: boolean;
   /** 有跟踪脚本但未读到 Status */
   trackIncomplete: boolean;
   /** 仅含意图所属的实例 / group，便于私有云多组展示 */
@@ -97,8 +99,21 @@ export function ownedVrrpIds(intent: HaGroupVrrpIntent): { vrids: Set<number>; g
   return { vrids, groupIds };
 }
 
-function pickInstances(rows: ParsedVrrpInstance[], vrids: Set<number>): ParsedVrrpInstance[] {
-  return rows.filter((r) => r.vrid != null && vrids.has(r.vrid));
+function pickInstances(
+  rows: ParsedVrrpInstance[],
+  vrids: Set<number>,
+  groupIds: Set<number>,
+): ParsedVrrpInstance[] {
+  const byVrid = rows.filter((r) => r.vrid != null && vrids.has(r.vrid));
+  if (byVrid.length) return byVrid;
+  const bySync = rows.filter((r) => r.syncGroup != null && groupIds.has(r.syncGroup));
+  if (bySync.length) return bySync;
+  // 仅当本机只有一条实例、且未带 VRID / Sync group 时，才把该条当作本组（避免 VRID 配错误通过）
+  if (vrids.size === 1 && rows.length === 1) {
+    const only = rows[0]!;
+    if (only.vrid == null && only.syncGroup == null) return rows;
+  }
+  return [];
 }
 
 function pickGroups(rows: ParsedVrrpGroup[], groupIds: Set<number>): ParsedVrrpGroup[] {
@@ -200,6 +215,7 @@ export function snapshotFromVrrpPayload(options: {
     trackCommand: null,
     trackGateway: null,
     groupsReadable: false,
+    instancesReadable: false,
     trackIncomplete: false,
     instances: [],
     groups: [],
@@ -214,12 +230,15 @@ export function snapshotFromVrrpPayload(options: {
       error || data.error || '设备未返回 show vrrp 运行状态（请确认 local-web 已支持 do show vrrp）',
     );
   }
-  const ownedInstances = pickInstances(parseVrrpInstancesShow(instancesRaw), vrids);
+  const ownedInstances = pickInstances(parseVrrpInstancesShow(instancesRaw), vrids, groupIds);
   const ownedGroups = pickGroups(parseVrrpGroupsShow(groupsRaw), groupIds);
   const track = rollupTrack(ownedGroups);
   const memberVrids = [
     ...new Set(ownedInstances.map((i) => i.vrid).filter((n): n is number => n != null)),
   ].sort((a, b) => a - b);
+  if (!memberVrids.length && ownedInstances.length && vrids.size === 1) {
+    memberVrids.push([...vrids][0]!);
+  }
   const ownedGroupIds = [
     ...new Set(ownedGroups.map((g) => g.groupId).filter((n): n is number => n != null)),
   ].sort((a, b) => a - b);
@@ -232,7 +251,7 @@ export function snapshotFromVrrpPayload(options: {
     name,
     reachable: true,
     state: rollupMemberState(ownedInstances),
-    vrid: ownedInstances[0]?.vrid ?? null,
+    vrid: ownedInstances[0]?.vrid ?? memberVrids[0] ?? null,
     memberVrids,
     groupIds: ownedGroupIds,
     virtualIps,
@@ -242,6 +261,7 @@ export function snapshotFromVrrpPayload(options: {
     trackCommand: track.trackCommand,
     trackGateway: track.trackGateway,
     groupsReadable,
+    instancesReadable: ownedInstances.length > 0,
     trackIncomplete: track.trackIncomplete || missingOwnedGroup || (groupIds.size > 0 && !groupsLive),
     instances: ownedInstances,
     groups: ownedGroups,
@@ -260,6 +280,14 @@ export function evaluateHaLiveSteps(members: HaLiveMemberSnapshot[]): HaLiveStep
     }
     if (!backup?.reachable) {
       return { key: 'role', status: 'fail', message: `${label(backup)}：${backup?.error || '不可达'}` };
+    }
+    const unreadInst = members.filter((m) => m.reachable && m.instancesReadable === false);
+    if (unreadInst.length) {
+      return {
+        key: 'role',
+        status: 'fail',
+        message: unreadInst.map((m) => `${label(m)} 未读到 show vrrp instances`).join('；'),
+      };
     }
     if (members.some((m) => String(m.state || '').toUpperCase() === 'MIXED')) {
       return {
@@ -346,6 +374,14 @@ export function evaluateHaLiveSteps(members: HaLiveMemberSnapshot[]): HaLiveStep
     const master = members.find((m) => String(m.state).toUpperCase() === 'MASTER');
     const others = members.filter((m) => m !== master);
     if (!master) {
+      const unreadInst = members.filter((m) => m.reachable && m.instancesReadable === false);
+      if (unreadInst.length) {
+        return {
+          key: 'vip',
+          status: 'fail',
+          message: unreadInst.map((m) => `${label(m)} 未读到 show vrrp instances，无法确认 VIP 挂载`).join('；'),
+        };
+      }
       return { key: 'vip', status: 'fail', message: '没有 MASTER，无法确认 VIP 挂载' };
     }
     if (!master.vipInstalled || master.virtualIps.length === 0) {

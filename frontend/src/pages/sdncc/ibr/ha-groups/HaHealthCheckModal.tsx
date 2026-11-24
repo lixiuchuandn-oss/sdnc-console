@@ -303,7 +303,13 @@ const HaHealthCheckModal: React.FC<Props> = ({ open, group, onClose }) => {
                     <div className="ha-live-fact">
                       <span className="ha-live-fact-k">实时角色</span>
                       <span className={`ha-live-fact-v${master ? ' is-ok' : ''}`}>
-                        {!report ? '待探测' : down ? '不可达' : state || '无'}
+                        {!report
+                          ? '待探测'
+                          : down
+                            ? '不可达'
+                            : live?.instancesReadable === false
+                              ? '未读到'
+                              : state || '无'}
                       </span>
                     </div>
                     <div className="ha-live-fact">

@@ -299,17 +299,38 @@ export async function getVrrpRunning(paths: Paths): Promise<{
 			groupsRaw: 'VRRP Sync Group = 1, MASTER\n  Status = GOOD\n',
 		};
 	}
-	// 只读 keepalived live show；不再先跑整份 running-config（慢且 live 三项判定不用）
-	const [inst, grp] = await Promise.all([
-		runClishArgv(['-c', 'do show vrrp instances'], paths, { timeoutMs: 10000 }),
-		runClishArgv(['-c', 'do show vrrp groups'], paths, { timeoutMs: 10000 }),
-	]);
+	// clish --lock + keepalived dump 不可并行：并行 instances/groups 会偶发只拿到 groups
+	//（HA 巡检表现为「组在、角色/VIP 未读到」，设备 CLI 串行却正常）。
+	const instancesRaw = await readVrrpShow(paths, 'instances');
+	const groupsRaw = await readVrrpShow(paths, 'groups');
 	return {
 		groups: [],
 		raw: '',
-		instancesRaw: inst.ok ? inst.output : String(inst.output || inst.error || ''),
-		groupsRaw: grp.ok ? grp.output : String(grp.output || grp.error || ''),
+		instancesRaw,
+		groupsRaw,
 	};
+}
+
+const VRRP_INST_HDR = /VRRP Instance\s*=/i;
+const VRRP_GRP_HDR = /VRRP Sync Group\s*=/i;
+
+function clishText(res: { ok: boolean; output?: string; error?: string }): string {
+	return res.ok ? String(res.output || '') : String(res.output || res.error || '');
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readVrrpShow(paths: Paths, kind: 'instances' | 'groups'): Promise<string> {
+	const cmd = kind === 'instances' ? 'do show vrrp instances' : 'do show vrrp groups';
+	const header = kind === 'instances' ? VRRP_INST_HDR : VRRP_GRP_HDR;
+	const once = () => runClishArgv(['-c', cmd], paths, { timeoutMs: 10000 });
+	const first = clishText(await once());
+	if (header.test(first)) return first;
+	await delay(400);
+	const retry = clishText(await once());
+	return header.test(retry) ? retry : retry || first;
 }
 
 export async function getRoutingPolicy(paths: Paths): Promise<{
