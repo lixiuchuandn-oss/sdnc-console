@@ -1686,7 +1686,7 @@ const PEWizard: React.FC = () => {
                           { pattern: /^[0-9a-fA-F:]+$/, message: '请输入合法的 IPv6 网关地址（不带 /xx）' },
                         ]}
                       >
-                        <Input placeholder="例如 203::33（直连可留空；经上游跨网段须填）" />
+                        <Input placeholder="例如 203::33（直连可留空；到对端PE跨网段须填）" />
                       </Form.Item>
                       <Form.Item
                         {...field}
@@ -1815,7 +1815,7 @@ const PEWizard: React.FC = () => {
             name="ipv6Via"
             label="IPv6 网关"
             dependencies={['ipv6Dest']}
-            extra="直连拓扑可留空；经上游跨网段须填写，否则创建 SRv6 隧道时 SID/64 下一跳可能无效并拦截"
+            extra="直连拓扑可留空；到对端PE跨网段须填写，否则创建 SRv6 隧道时 SID/64 下一跳可能无效并拦截"
             rules={[
               {
                 validator: async (_, value) => {
@@ -1829,7 +1829,7 @@ const PEWizard: React.FC = () => {
               { pattern: /^[0-9a-fA-F:]+$/, message: '请输入合法的 IPv6 网关地址（不带 /xx）' },
             ]}
           >
-            <Input placeholder="例如 203::44（直连可留空；经上游跨网段须填，否则 SRv6 隧道可能创建失败）" />
+            <Input placeholder="例如 203::44（直连可留空；到对端PE跨网段须填，否则 SRv6 隧道可能创建失败）" />
           </Form.Item>
             </>
           ) : null}
