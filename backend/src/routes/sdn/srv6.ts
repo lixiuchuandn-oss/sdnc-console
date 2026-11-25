@@ -30,6 +30,7 @@ import { resolveHubBindingsWithInventory } from './srv6.hubInventory';
 import { buildSrv6TunnelHealth } from './srv6.health';
 import { buildSrv6TunnelHealthSummaries } from './srv6.listHealth';
 import { reconcileAllSrv6Vrs } from './srv6.reconcile';
+import { buildSrv6Topology } from './srv6.topology';
 import { findSrv6TunnelsReferencingVr } from './srv6.references';
 import { alignReuseVrfTunnelArchive } from './srv6.reuseRdRt';
 import { syncSrv6TunnelPlatformConfigs } from './srv6.sync';
@@ -386,6 +387,40 @@ srv6Routes.get('/reconcile', async (req, res, next) => {
     const vrUuid = typeof req.query.vrUuid === 'string' ? req.query.vrUuid.trim() : undefined;
     const report = await reconcileAllSrv6Vrs({ repair: false, vrUuid });
     res.json(report);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** P2：架构拓扑聚合（入口隧道 → Hub(含双 Hub 一跳扩展) + 隧道 + 拓扑内对账） */
+srv6Routes.get('/topology/:tunnelId', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
+      }
+    }
+    const tunnelId = String(req.params.tunnelId || '').trim();
+    if (!tunnelId) {
+      res.status(400).json({ message: '缺少 tunnelId' });
+      return;
+    }
+    const topo = await buildSrv6Topology(tunnelId, { reconcile: req.query.reconcile !== '0' });
+    if (!topo) {
+      res.status(404).json({ message: '隧道不存在' });
+      return;
+    }
+    res.json(topo);
   } catch (e) {
     next(e);
   }

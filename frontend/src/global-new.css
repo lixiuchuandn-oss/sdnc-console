@@ -522,6 +522,194 @@ html, body, #root {
   background: #e6f4ff;
   box-shadow: inset 0 0 0 1px #1677ff33;
 }
+.srv6-arch-legend-swatch.is-ce {
+  border-color: #b7eb8f;
+  background: #f6ffed;
+  border-radius: 6px;
+}
+.srv6-arch-legend-line {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid #86909c;
+}
+.srv6-arch-legend-line.is-attach {
+  border-top: 1px solid #c9cdd4;
+}
+.srv6-arch-node.srv6-arch-node--spoke.is-focus {
+  border-color: #91caff;
+}
+
+/* SRv6 架构拓扑 v2：中心锚点 / CE / WAN 口 / 摘要 / 边 */
+.srv6-topo-center-handle {
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+.srv6-topo-ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #e5e6eb;
+}
+.srv6-topo-port {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid #d3adf7;
+  background: #fff;
+  color: #531dab;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.srv6-topo-port b {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #f9f0ff;
+  color: #722ed1;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+.srv6-topo-port.is-focus {
+  border-color: #1677ff;
+  color: #1677ff;
+}
+.srv6-topo-ce {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 132px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 22px;
+  border: 1px solid #b7eb8f;
+  background: #f6ffed;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  font-size: 12px;
+}
+.srv6-topo-ce.is-focus {
+  border-color: #73d13d;
+  box-shadow: 0 0 0 2px #52c41a22;
+}
+.srv6-topo-ce-role {
+  color: #389e0d;
+  font-size: 10px;
+  font-weight: 600;
+}
+.srv6-topo-ce-name {
+  flex: 1;
+  min-width: 0;
+  color: #1d2129;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srv6-topo-ce-shared {
+  color: #86909c;
+  font-size: 10px;
+}
+.srv6-topo-summary {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  display: inline-flex;
+  gap: 14px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  color: #4e5969;
+  font-size: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.srv6-topo-summary b {
+  margin-left: 2px;
+  color: #1d2129;
+}
+.srv6-topo-edge-label .is-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.srv6-topo-status-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff;
+}
+.srv6-arch-flow-legend .srv6-topo-status-dot,
+.srv6-topo-list-panel .srv6-topo-status-dot,
+.ant-drawer .srv6-topo-status-dot {
+  margin-left: 0;
+}
+.srv6-arch-legend-sep {
+  width: 1px;
+  height: 12px;
+  background: #e5e6eb;
+}
+.srv6-arch-node.is-issue,
+.srv6-topo-ce.is-issue {
+  border-color: #f53f3f;
+  box-shadow: 0 0 0 2px #f53f3f22;
+}
+.srv6-arch-node.is-selected,
+.srv6-topo-ce.is-selected {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+.srv6-arch-node,
+.srv6-topo-ce,
+.srv6-topo-edge {
+  transition: opacity 0.15s ease;
+}
+.srv6-arch-node.is-dim,
+.srv6-topo-ce.is-dim,
+.srv6-arch-flow-card .react-flow__edge.is-dim {
+  opacity: 0.22;
+}
+.srv6-arch-flow-card .react-flow__edge.is-hover .react-flow__edge-path {
+  stroke-width: 3px !important;
+}
+.srv6-arch-flow-card .react-flow__node,
+.srv6-arch-flow-card .react-flow__edge {
+  cursor: pointer;
+}
+.srv6-topo-summary em.is-issue {
+  font-style: normal;
+  color: #f53f3f;
+}
+.srv6-topo-summary .is-muted {
+  color: #c9cdd4;
+}
+.srv6-topo-list-panel {
+  margin-top: 12px;
+}
+.srv6-topo-list-panel .ant-table-row {
+  cursor: pointer;
+}
+.srv6-topo-list-panel .srv6-topo-row-active > td {
+  background: #e6f4ff !important;
+}
+.srv6-topo-edge-flow {
+  stroke-dasharray: 8 6;
+  animation: srv6-topo-flow 1.2s linear infinite;
+}
+@keyframes srv6-topo-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
 
 /* ==========================================================================
    Table Styles (std)

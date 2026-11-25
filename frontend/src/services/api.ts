@@ -562,6 +562,34 @@ export const fetchSrv6Reconcile = async (vrUuid?: string): Promise<Srv6Reconcile
   return await apiRequest(`/api/networks/srv6/reconcile${qs}`, { skipCache: true });
 };
 
+export type Srv6TopologyTunnelRow = {
+  id: string;
+  name: string;
+  peA: string;
+  peB: string;
+  ceA: string;
+  ceB: string;
+  tunnelTopology: 'S' | 'H' | null;
+  hubPeSlot: 'peA' | 'peB' | null;
+  peAInnerIf: string | null;
+  peBInnerIf: string | null;
+};
+
+export type Srv6TopologyResp = {
+  focusTunnelId: string;
+  mode: 'hub' | 'p2p';
+  hubs: Srv6HubVrStatus[];
+  tunnels: Srv6TopologyTunnelRow[];
+  reconcile: Srv6ReconcileReport & { scope: string[]; error?: string };
+};
+
+/** P2：架构拓扑聚合（含双 Hub 一跳扩展与拓扑内只读对账） */
+export const fetchSrv6Topology = async (tunnelId: string): Promise<Srv6TopologyResp> => {
+  return await apiRequest(`/api/networks/srv6/topology/${encodeURIComponent(tunnelId)}`, {
+    skipCache: true,
+  });
+};
+
 /** P4：SRv6 配置对账并修复 */
 export const repairSrv6Reconcile = async (options?: {
   vrUuid?: string;

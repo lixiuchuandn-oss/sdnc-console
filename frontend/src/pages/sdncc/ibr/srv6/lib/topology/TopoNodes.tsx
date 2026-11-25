@@ -1,0 +1,220 @@
+/**
+ * SRv6 架构拓扑：节点组件 + Srv6Topology → react-flow elements 转换。
+ */
+import React, { memo } from 'react';
+import { Handle, Position, type Edge, type Node, type NodeProps } from 'react-flow-renderer';
+import { abbrIfName, type Srv6Topology, type TopoNode } from './buildTopology';
+import { layoutTopology, type LayoutKind } from './layout';
+import TunnelEdge, { type TunnelEdgeData } from './TunnelEdge';
+import { STATUS_COLOR, STATUS_LABEL, tunnelStatus, type ConfigStatus, type VrStatus } from './status';
+
+export type PeNodeData = {
+  role: TopoNode['role'];
+  name: string;
+  uuid: string;
+  tunnelCount: number;
+  focus: boolean;
+  status: ConfigStatus;
+  dim?: boolean;
+  /** Hub WAN 口：接口缩写 → 挂载隧道数 */
+  wanPorts?: Array<{ ifName: string; count: number; focus: boolean }>;
+};
+
+export type CeNodeData = {
+  name: string;
+  uuid: string;
+  focus: boolean;
+  shared: number;
+  status: ConfigStatus;
+  dim?: boolean;
+};
+
+/** 中心浮动锚点：自定义边直接使用节点中心 */
+const CenterAnchors: React.FC = () => (
+  <>
+    <Handle type="source" id="c" position={Position.Top} className="srv6-arch-handle srv6-topo-center-handle" />
+    <Handle type="target" id="c" position={Position.Top} className="srv6-arch-handle srv6-topo-center-handle" />
+  </>
+);
+
+const StatusDot: React.FC<{ status: ConfigStatus }> = ({ status }) => (
+  <i
+    className={`srv6-topo-status-dot is-${status}`}
+    style={{ background: STATUS_COLOR[status] }}
+    title={STATUS_LABEL[status]}
+  />
+);
+
+const ROLE_LABEL: Record<TopoNode['role'], string> = {
+  hub: 'Hub PE',
+  spoke: 'Spoke PE',
+  pe: 'PE',
+  ce: 'CE',
+};
+
+export const PeTopoNode = memo(({ data, selected }: NodeProps<PeNodeData>) => (
+  <div
+    className={`srv6-arch-node srv6-arch-node--${data.role === 'hub' ? 'hub' : 'spoke'}${
+      data.focus ? ' is-focus' : ''
+    }${data.dim ? ' is-dim' : ''}${selected ? ' is-selected' : ''}${
+      data.status === 'issue' ? ' is-issue' : ''
+    }`}
+  >
+    <CenterAnchors />
+    <div className="srv6-arch-node-role">
+      {ROLE_LABEL[data.role]}
+      {data.focus && data.role !== 'hub' ? <span className="srv6-arch-node-badge">当前</span> : null}
+      <StatusDot status={data.status} />
+    </div>
+    <div className="srv6-arch-node-name" title={data.uuid}>
+      {data.name}
+    </div>
+    <div className="srv6-arch-node-meta">{data.tunnelCount} 条隧道</div>
+    {data.wanPorts && data.wanPorts.length ? (
+      <div className="srv6-topo-ports">
+        {data.wanPorts.map((p) => (
+          <span
+            key={p.ifName}
+            className={`srv6-topo-port${p.focus ? ' is-focus' : ''}`}
+            title={`WAN ${p.ifName} · ${p.count} 条隧道`}
+          >
+            {p.ifName}
+            <b>{p.count}</b>
+          </span>
+        ))}
+      </div>
+    ) : null}
+  </div>
+));
+PeTopoNode.displayName = 'PeTopoNode';
+
+export const CeTopoNode = memo(({ data, selected }: NodeProps<CeNodeData>) => (
+  <div
+    className={`srv6-topo-ce${data.focus ? ' is-focus' : ''}${data.dim ? ' is-dim' : ''}${
+      selected ? ' is-selected' : ''
+    }${data.status === 'issue' ? ' is-issue' : ''}`}
+    title={data.uuid}
+  >
+    <CenterAnchors />
+    <span className="srv6-topo-ce-role">CE</span>
+    <span className="srv6-topo-ce-name">{data.name}</span>
+    {data.shared > 1 ? <span className="srv6-topo-ce-shared">×{data.shared}</span> : null}
+    <StatusDot status={data.status} />
+  </div>
+));
+CeTopoNode.displayName = 'CeTopoNode';
+
+export const TOPO_NODE_TYPES = { pe: PeTopoNode, ce: CeTopoNode };
+export const TOPO_EDGE_TYPES = { tunnel: TunnelEdge };
+
+export type FlowOptions = {
+  layout?: LayoutKind;
+  statusMap?: Record<string, VrStatus>;
+  /** 选中后的关联集合；null 表示无选中 */
+  related?: Set<string> | null;
+  hoverTunnelId?: string | null;
+};
+
+export function toFlowElements(
+  topo: Srv6Topology,
+  nameOf: (uuid: string) => string,
+  opts: FlowOptions = {},
+): { nodes: Node[]; edges: Edge<TunnelEdgeData>[] } {
+  const pos = layoutTopology(topo, opts.layout);
+  const statusMap = opts.statusMap || {};
+  const related = opts.related || null;
+  const dim = (id: string) => (related ? !related.has(id) : false);
+  const st = (uuid: string): ConfigStatus => statusMap[uuid]?.status || 'unknown';
+
+  const wanByHub = new Map<string, Map<string, { count: number; focus: boolean }>>();
+  topo.tunnels.forEach((t) => {
+    if (!t.hubWanIf) return;
+    const m = wanByHub.get(t.source) || new Map();
+    const k = abbrIfName(t.hubWanIf);
+    const cur = m.get(k) || { count: 0, focus: false };
+    m.set(k, { count: cur.count + 1, focus: cur.focus || t.focus });
+    wanByHub.set(t.source, m);
+  });
+
+  const nodes: Node[] = topo.nodes.map((n) => {
+    const base = { id: n.id, position: pos[n.id] || { x: 0, y: 0 } };
+    if (n.role === 'ce') {
+      return {
+        ...base,
+        type: 'ce',
+        data: {
+          name: nameOf(n.uuid),
+          uuid: n.uuid,
+          focus: n.focus,
+          shared: n.tunnelIds.length,
+          status: st(n.uuid),
+          dim: dim(n.id),
+        } as CeNodeData,
+      };
+    }
+    const ports = wanByHub.get(n.id);
+    return {
+      ...base,
+      type: 'pe',
+      data: {
+        role: n.role,
+        name: nameOf(n.uuid),
+        uuid: n.uuid,
+        tunnelCount: n.tunnelIds.length,
+        focus: n.focus,
+        status: st(n.uuid),
+        dim: dim(n.id),
+        wanPorts: ports ? Array.from(ports.entries()).map(([ifName, v]) => ({ ifName, ...v })) : undefined,
+      } as PeNodeData,
+    };
+  });
+
+  const ceUuidOf = new Map(topo.nodes.map((n) => [n.id, n.uuid]));
+  const hasStatus = Object.keys(statusMap).length > 0;
+
+  const edges: Edge<TunnelEdgeData>[] = [
+    ...topo.attaches.map((a) => {
+      const s = hasStatus ? (st(ceUuidOf.get(a.ceNodeId) || '') === 'issue' || st(ceUuidOf.get(a.peNodeId) || '') === 'issue' ? 'issue' : null) : null;
+      return {
+        id: a.id,
+        source: a.peNodeId,
+        target: a.ceNodeId,
+        sourceHandle: 'c',
+        targetHandle: 'c',
+        type: 'tunnel',
+        className: dim(a.id) ? 'is-dim' : undefined,
+        data: {
+          kind: 'attach' as const,
+          label: abbrIfName(a.innerIf) || undefined,
+          focus: a.focus,
+          stroke: s ? STATUS_COLOR.issue : undefined,
+        },
+      };
+    }),
+    ...topo.tunnels.map((t) => {
+      const ts = hasStatus ? tunnelStatus(topo, t.id, statusMap) : null;
+      const hover = opts.hoverTunnelId === t.id;
+      return {
+        id: `t:${t.id}`,
+        source: t.source,
+        target: t.target,
+        sourceHandle: 'c',
+        targetHandle: 'c',
+        type: 'tunnel',
+        zIndex: t.focus || hover ? 2 : 1,
+        className: `${dim(`t:${t.id}`) ? 'is-dim' : ''}${hover ? ' is-hover' : ''}`.trim() || undefined,
+        data: {
+          kind: 'tunnel' as const,
+          label: t.name,
+          subLabel: t.hubWanIf ? `WAN ${abbrIfName(t.hubWanIf)}` : undefined,
+          focus: t.focus || hover,
+          groupIndex: t.groupIndex,
+          groupSize: t.groupSize,
+          // 当前入口保持品牌蓝；其余按配置态着色（ok 不抢眼，用灰绿）
+          stroke: ts && !(t.focus && ts === 'ok') ? (ts === 'ok' ? '#7bc96f' : STATUS_COLOR[ts]) : undefined,
+        },
+      };
+    }),
+  ];
+  return { nodes, edges };
+}
