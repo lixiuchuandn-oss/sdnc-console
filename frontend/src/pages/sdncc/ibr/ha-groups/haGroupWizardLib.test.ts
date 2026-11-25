@@ -131,6 +131,12 @@ describe('haGroupWizardLib vrrp intent', () => {
 		const badPri = sampleFormValues();
 		badPri.primary.instances[0]!.priority = 90;
 		expect(validateHaGroupWizardForm(badPri)).toMatch(/优先级/);
+		const badAuth = sampleFormValues();
+		badAuth.primary.instances[0]!.authPass = 'abc12';
+		expect(validateHaGroupWizardForm(badAuth)).toMatch(/认证密码仅支持数字/);
+		const okAuth = sampleFormValues();
+		okAuth.primary.instances[0]!.authPass = '654321';
+		expect(validateHaGroupWizardForm(okAuth)).toBeNull();
 		const optionalTrack = sampleFormValues();
 		optionalTrack.primary.groups[0]!.trackGateway = '';
 		expect(validateHaGroupWizardForm(optionalTrack)).toBeNull();

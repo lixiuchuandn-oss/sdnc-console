@@ -495,7 +495,6 @@ const IbrHaGroupWizard: React.FC = () => {
 			}
 			setLoading(true);
 			const vrrpIntent = buildHaGroupVrrpIntent(values);
-			let writeWarnings: string[] = [];
 			if (isEdit && editId) {
 				const currentPrimary = memberByRole(savedGroup, 'primary')?.vrUuid;
 				const currentBackup = memberByRole(savedGroup, 'backup')?.vrUuid;
@@ -508,7 +507,6 @@ const IbrHaGroupWizard: React.FC = () => {
 						primaryUuid: values.primaryUuid,
 						backupUuid: values.backupUuid,
 					});
-					writeWarnings = replaced.warnings;
 					setSavedGroup(replaced.group);
 				}
 				const updated = await updateIbrHaGroup(editId, {
@@ -525,15 +523,13 @@ const IbrHaGroupWizard: React.FC = () => {
 					backupUuid: values.backupUuid,
 					vrrpIntent,
 				});
-				writeWarnings = created.warnings;
 				setSavedGroup(created.group);
 				navigate(`/admin/interconnect/ha-groups/${created.group.id}/wizard`, { replace: true });
 			}
 			setPlatformSaved(true);
 			void loadHaGroups();
+			// 成员被隧道引用的软提示已在选人步骤 Alert 展示，保存成功只报结果、不再弹 toast
 			message.success(isEdit ? 'HA 组已更新' : 'HA 组已创建（草稿）');
-			const tips = writeWarnings.length ? writeWarnings : gate.warnings;
-			tips.forEach((w) => message.warning(w, 8));
 			refreshPreview();
 		} catch (e) {
 			if (e && typeof e === 'object' && 'errorFields' in e) return;

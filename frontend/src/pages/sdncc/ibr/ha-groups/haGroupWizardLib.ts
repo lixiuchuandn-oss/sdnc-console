@@ -422,6 +422,10 @@ function validateNodeVrrp(node: HaNodeVrrpForm | undefined, role: 'primary' | 'b
 		if (!Number.isInteger(pri) || pri < 1 || pri > 255) {
 			return `${prefix}实例 ${n}：优先级须为 1–255 的整数`;
 		}
+		const authPass = String(inst.authPass ?? '').trim();
+		if (authPass && !/^\d+$/.test(authPass)) {
+			return `${prefix}实例 ${n}：认证密码仅支持数字`;
+		}
 		const advertInterval = Number(inst.advertInterval ?? 1);
 		if (!Number.isInteger(advertInterval) || advertInterval < 1 || advertInterval > 256) {
 			return `${prefix}实例 ${n}：通告间隔须为 1–256 秒`;

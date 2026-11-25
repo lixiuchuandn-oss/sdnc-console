@@ -100,6 +100,7 @@ const HaGroupNodeVrrpPane: React.FC<HaGroupNodeVrrpPaneProps> = ({
 						name={[field.name, 'priority']}
 						label="优先级"
 						rules={[{ required: true, message: '请输入优先级' }]}
+						extra="范围 1–255"
 					>
 						<InputNumber min={1} max={255} style={{ width: '100%' }} />
 					</Form.Item>
@@ -118,8 +119,24 @@ const HaGroupNodeVrrpPane: React.FC<HaGroupNodeVrrpPaneProps> = ({
 					</Form.Item>
 				</Col>
 				<Col span={12}>
-					<Form.Item {...field} name={[field.name, 'authPass']} label="认证密码（可选）">
-						<Input.Password placeholder="可留空" autoComplete="new-password" />
+					<Form.Item
+						{...field}
+						name={[field.name, 'authPass']}
+						label="认证密码（可选）"
+						extra="仅支持数字；可留空"
+						rules={[
+							{
+								validator: async (_, value) => {
+									const s = String(value ?? '').trim();
+									if (!s) return;
+									if (!/^\d+$/.test(s)) {
+										throw new Error('认证密码仅支持数字');
+									}
+								},
+							},
+						]}
+					>
+						<Input.Password placeholder="可留空，仅数字" autoComplete="new-password" />
 					</Form.Item>
 				</Col>
 			</Row>
