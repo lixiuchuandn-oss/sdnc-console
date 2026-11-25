@@ -191,7 +191,8 @@ ipoe 打包副本在 `products/ipoe/control-plane/etc/agent/`，用 **`products/
 
 | 内容 | 说明 |
 |------|------|
-| `registervr.conf.temp` | 首次启动复制到 `/usr/local/src/vrconf/registervr.conf` |
+| `registervr.conf.temp` | 首次启动复制到 `/usr/local/src/vrconf/registervr.conf`（键序：uuid/name/vm_id/mac 在前） |
+| `registervr.conf.README.md` | 手改必填说明；`vrctl.init` 同步到 `/usr/local/src/vrconf/` |
 | `vrcontrol.conf.temp` | 首次启动复制到 `/usr/local/src/vrconf/vrcontrol.conf` |
 | `lua/*.lua` | 下发 JSON → clish 命令 |
 | `transfer.lua` | 配置 diff/合并总入口 |

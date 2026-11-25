@@ -12,7 +12,7 @@
 
 `/usr/local/src/vrconf/registervr.conf`
 
-出厂模板（`ibr-local-agent/tools/registervr.conf.temp`）只有 `name` / `vm_id` / `pool_*` / `type` / `version`，**没有** `uuid`、`mac`。
+出厂模板（`ibr-local-agent/tools/registervr.conf.temp`）含八字段，键序为 **`uuid` → `name` → `vm_id` → `mac` → `type` → `version` → `pool_*`**；其中 **`uuid`、`mac` 初始为空串**，保存「接入与身份」后再写入。agent / CSMCTL 按**字段名**读写，键序只影响可读性。脱开 Paas 手改时见同目录 `registervr.conf.README.md`（首次启动会复制到 `/usr/local/src/vrconf/`）。
 
 历史上有两套「空了就自己编身份」的逻辑，容易把同一台机器在控制器上变成两行：
 
@@ -185,6 +185,7 @@ systemctl restart vrctl-agent.service
 | agent 主循环 | `ibr-local-agent/vrctl.agent`（`auth_device` / `discover_change` / `register`） |
 | download 重读 uuid | `ibr-local-agent/monitoring.agent`（`refresh_uuid`） |
 | 出厂模板 | `ibr-local-agent/tools/registervr.conf.temp` |
+| 手改说明 | `ibr-local-agent/tools/registervr.conf.README.md` → 设备 `/usr/local/src/vrconf/registervr.conf.README.md` |
 | CSMCTL 注册 | `csm-controller/.../VrInServiceImpl.java`、`VrDao.java`、`VrDeviceBean.java` |
 | Paas 身份页 | `Paas-VRv2`（或本仓对照 `ibr-local-web`）`web/src/pages/device/config/DeviceServicePage.tsx` |
 | Paas 写盘 / 唤醒 | `server/src/lib/registerVrIdentity.ts`、`server/src/routes/api/configSysRoutes.ts` |

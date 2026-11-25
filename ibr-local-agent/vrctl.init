@@ -4,6 +4,10 @@ mkdir -p /usr/local/src/vrconf
 if [ ! -f "/usr/local/src/vrconf/registervr.conf" ]; then
         cp /rhos/etc/agent/tools/registervr.conf.temp /usr/local/src/vrconf/registervr.conf
 fi
+# 字段说明可随包更新；不覆盖用户已填写的 registervr.conf
+if [ -f /rhos/etc/agent/tools/registervr.conf.README.md ]; then
+        cp /rhos/etc/agent/tools/registervr.conf.README.md /usr/local/src/vrconf/registervr.conf.README.md
+fi
 if [ ! -f "/usr/local/src/vrconf/vrcontrol.conf" ]; then
         cp /rhos/etc/agent/tools/vrcontrol.conf.temp /usr/local/src/vrconf/vrcontrol.conf
 fi

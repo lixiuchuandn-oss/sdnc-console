@@ -1,8 +1,10 @@
 {
-    "pool_id": "",
-    "pool_name": "",
+    "uuid": "",
+    "name": "",
     "vm_id": "",
-    "name" : "",
+    "mac": "",
+    "type": "VR",
     "version": "V1.0",
-    "type": "VR"
+    "pool_id": "",
+    "pool_name": ""
 }

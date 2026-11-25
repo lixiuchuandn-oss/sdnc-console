@@ -317,7 +317,7 @@ export function NicInitPage() {
 										<span>初始化模式</span>
 										<Tooltip
 											placement="right"
-											title="管理口不会被接管；选成 WAN/LAN 的旧业务口会清掉口上地址。静态模式：选 WAN+LAN（3 网口）；DHCP 模式：选 WAN（2 网口，LAN 可选）。"
+											title="管理口不会被接管；选成 WAN/LAN 的旧业务口会清掉口上地址。"
 										>
 											<QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)', cursor: 'help' }} />
 										</Tooltip>
