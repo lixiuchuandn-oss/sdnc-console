@@ -24,4 +24,17 @@ describe('peWizardTabEdit P1', () => {
       nextActiveKey: '0',
     });
   });
+
+  it('plan remove blocks locked tab indexes', () => {
+    expect(
+      planInventoryTabEdit('remove', '0', 3, '1', { removeBlockedIndexes: new Set([0]) }),
+    ).toBeNull();
+    expect(
+      planInventoryTabEdit('remove', '1', 3, '1', { removeBlockedIndexes: [0] }),
+    ).toEqual({
+      action: 'remove',
+      removeIndex: 1,
+      nextActiveKey: '0',
+    });
+  });
 });

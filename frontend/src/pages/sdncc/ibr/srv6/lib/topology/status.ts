@@ -1,11 +1,15 @@
 /**
- * SRv6 架构拓扑：配置态（对账结果）着色 + 选中关联集合。
- * 对账按 VR（PE/CE）粒度返回 issues；隧道状态 = 其四端中最差者。
+ * SRv6 架构拓扑：配置态（对账结果）着色 + 设备运行态叠加 + 选中关联集合。
+ * - 对账按 VR（PE/CE）粒度返回 issues；隧道配置态 = 其四端中最差者
+ * - 运行态来自 IBR 实例目录 health_status，与配置态解耦（可「对账一致但已停止」）
  */
 import type { Srv6ReconcileItem, Srv6ReconcileReport } from '../../../../../../services/api';
+import { ibrVrRowId, type IbrVrRow } from '../../../lib/ibrVrCatalog';
+import { getVrHealthStatusKey } from '../../../routers/vrListDisplay';
 import type { Srv6Topology } from './buildTopology';
 
 export type ConfigStatus = 'ok' | 'issue' | 'repaired' | 'unknown';
+export type RuntimeStatus = 'running' | 'warning' | 'stopped' | 'unknown';
 
 export type VrStatus = {
   status: ConfigStatus;
@@ -25,6 +29,22 @@ export const STATUS_LABEL: Record<ConfigStatus, string> = {
   repaired: '已修复',
   unknown: '未对账',
 };
+
+export const RUNTIME_COLOR: Record<RuntimeStatus, string> = {
+  running: '#00b42a',
+  warning: '#ff7d00',
+  stopped: '#f53f3f',
+  unknown: '#c9cdd4',
+};
+
+export const RUNTIME_LABEL: Record<RuntimeStatus, string> = {
+  running: '运行中',
+  warning: '警告',
+  stopped: '已停止',
+  unknown: '未知',
+};
+
+export const OFFLINE_STROKE = '#f53f3f';
 
 const RANK: Record<ConfigStatus, number> = { unknown: 0, ok: 1, repaired: 2, issue: 3 };
 export const worst = (list: ConfigStatus[]): ConfigStatus =>
@@ -74,6 +94,49 @@ export function tunnelStatus(
   statusMap: Record<string, VrStatus>,
 ): ConfigStatus {
   return worst(tunnelEndUuids(topo, tunnelId).map((u) => statusMap[u]?.status || 'unknown'));
+}
+
+/** 从 IBR 实例目录构建 uuid → 运行态（与实例列表同一套判定） */
+export function buildRuntimeMap(vrs: IbrVrRow[] | null | undefined): Record<string, RuntimeStatus> {
+  const map: Record<string, RuntimeStatus> = {};
+  (vrs || []).forEach((row) => {
+    const id = ibrVrRowId(row);
+    if (!id) return;
+    map[id] = getVrHealthStatusKey(row.health_status ?? row.healthStatus ?? row.status);
+  });
+  return map;
+}
+
+export function runtimeOf(map: Record<string, RuntimeStatus> | null | undefined, uuid: string): RuntimeStatus {
+  return map?.[uuid] || 'unknown';
+}
+
+export function isStopped(rt: RuntimeStatus): boolean {
+  return rt === 'stopped';
+}
+
+/** 隧道两端 PE 任一已停止 → 端点离线（不看 CE） */
+export function tunnelPeOffline(
+  topo: Srv6Topology,
+  tunnelId: string,
+  runtimeMap: Record<string, RuntimeStatus>,
+): boolean {
+  const t = topo.tunnels.find((x) => x.id === tunnelId);
+  if (!t) return false;
+  return isStopped(runtimeOf(runtimeMap, t.sourceUuid)) || isStopped(runtimeOf(runtimeMap, t.targetUuid));
+}
+
+/** 接入边：PE 或 CE 已停止 → 离线提示 */
+export function attachOffline(
+  peUuid: string,
+  ceUuid: string,
+  runtimeMap: Record<string, RuntimeStatus>,
+): boolean {
+  return isStopped(runtimeOf(runtimeMap, peUuid)) || isStopped(runtimeOf(runtimeMap, ceUuid));
+}
+
+export function countOfflineNodes(topo: Srv6Topology, runtimeMap: Record<string, RuntimeStatus>): number {
+  return topo.nodes.filter((n) => isStopped(runtimeOf(runtimeMap, n.uuid))).length;
 }
 
 export type Selection = { kind: 'node' | 'tunnel'; id: string } | null;

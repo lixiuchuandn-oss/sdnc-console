@@ -6,7 +6,20 @@ import { Handle, Position, type Edge, type Node, type NodeProps } from 'react-fl
 import { abbrIfName, type Srv6Topology, type TopoNode } from './buildTopology';
 import { layoutTopology, type LayoutKind } from './layout';
 import TunnelEdge, { type TunnelEdgeData } from './TunnelEdge';
-import { STATUS_COLOR, STATUS_LABEL, tunnelStatus, type ConfigStatus, type VrStatus } from './status';
+import {
+  OFFLINE_STROKE,
+  RUNTIME_LABEL,
+  STATUS_COLOR,
+  STATUS_LABEL,
+  attachOffline,
+  isStopped,
+  runtimeOf,
+  tunnelPeOffline,
+  tunnelStatus,
+  type ConfigStatus,
+  type RuntimeStatus,
+  type VrStatus,
+} from './status';
 
 export type PeNodeData = {
   role: TopoNode['role'];
@@ -15,6 +28,7 @@ export type PeNodeData = {
   tunnelCount: number;
   focus: boolean;
   status: ConfigStatus;
+  runtime: RuntimeStatus;
   dim?: boolean;
   /** Hub WAN 口：接口缩写 → 挂载隧道数 */
   wanPorts?: Array<{ ifName: string; count: number; focus: boolean }>;
@@ -26,6 +40,7 @@ export type CeNodeData = {
   focus: boolean;
   shared: number;
   status: ConfigStatus;
+  runtime: RuntimeStatus;
   dim?: boolean;
 };
 
@@ -45,6 +60,15 @@ const StatusDot: React.FC<{ status: ConfigStatus }> = ({ status }) => (
   />
 );
 
+const RuntimeBadge: React.FC<{ runtime: RuntimeStatus }> = ({ runtime }) => {
+  if (!isStopped(runtime) && runtime !== 'warning') return null;
+  return (
+    <span className={`srv6-topo-runtime-badge is-${runtime}`} title={RUNTIME_LABEL[runtime]}>
+      {RUNTIME_LABEL[runtime]}
+    </span>
+  );
+};
+
 const ROLE_LABEL: Record<TopoNode['role'], string> = {
   hub: 'Hub PE',
   spoke: 'Spoke PE',
@@ -58,12 +82,13 @@ export const PeTopoNode = memo(({ data, selected }: NodeProps<PeNodeData>) => (
       data.focus ? ' is-focus' : ''
     }${data.dim ? ' is-dim' : ''}${selected ? ' is-selected' : ''}${
       data.status === 'issue' ? ' is-issue' : ''
-    }`}
+    }${isStopped(data.runtime) ? ' is-stopped' : ''}${data.runtime === 'warning' ? ' is-runtime-warn' : ''}`}
   >
     <CenterAnchors />
     <div className="srv6-arch-node-role">
       {ROLE_LABEL[data.role]}
       {data.focus && data.role !== 'hub' ? <span className="srv6-arch-node-badge">当前</span> : null}
+      <RuntimeBadge runtime={data.runtime} />
       <StatusDot status={data.status} />
     </div>
     <div className="srv6-arch-node-name" title={data.uuid}>
@@ -92,13 +117,16 @@ export const CeTopoNode = memo(({ data, selected }: NodeProps<CeNodeData>) => (
   <div
     className={`srv6-topo-ce${data.focus ? ' is-focus' : ''}${data.dim ? ' is-dim' : ''}${
       selected ? ' is-selected' : ''
-    }${data.status === 'issue' ? ' is-issue' : ''}`}
+    }${data.status === 'issue' ? ' is-issue' : ''}${isStopped(data.runtime) ? ' is-stopped' : ''}${
+      data.runtime === 'warning' ? ' is-runtime-warn' : ''
+    }`}
     title={data.uuid}
   >
     <CenterAnchors />
     <span className="srv6-topo-ce-role">CE</span>
     <span className="srv6-topo-ce-name">{data.name}</span>
     {data.shared > 1 ? <span className="srv6-topo-ce-shared">×{data.shared}</span> : null}
+    <RuntimeBadge runtime={data.runtime} />
     <StatusDot status={data.status} />
   </div>
 ));
@@ -110,6 +138,7 @@ export const TOPO_EDGE_TYPES = { tunnel: TunnelEdge };
 export type FlowOptions = {
   layout?: LayoutKind;
   statusMap?: Record<string, VrStatus>;
+  runtimeMap?: Record<string, RuntimeStatus>;
   /** 选中后的关联集合；null 表示无选中 */
   related?: Set<string> | null;
   hoverTunnelId?: string | null;
@@ -122,9 +151,11 @@ export function toFlowElements(
 ): { nodes: Node[]; edges: Edge<TunnelEdgeData>[] } {
   const pos = layoutTopology(topo, opts.layout);
   const statusMap = opts.statusMap || {};
+  const runtimeMap = opts.runtimeMap || {};
   const related = opts.related || null;
   const dim = (id: string) => (related ? !related.has(id) : false);
   const st = (uuid: string): ConfigStatus => statusMap[uuid]?.status || 'unknown';
+  const rt = (uuid: string): RuntimeStatus => runtimeOf(runtimeMap, uuid);
 
   const wanByHub = new Map<string, Map<string, { count: number; focus: boolean }>>();
   topo.tunnels.forEach((t) => {
@@ -148,6 +179,7 @@ export function toFlowElements(
           focus: n.focus,
           shared: n.tunnelIds.length,
           status: st(n.uuid),
+          runtime: rt(n.uuid),
           dim: dim(n.id),
         } as CeNodeData,
       };
@@ -163,18 +195,23 @@ export function toFlowElements(
         tunnelCount: n.tunnelIds.length,
         focus: n.focus,
         status: st(n.uuid),
+        runtime: rt(n.uuid),
         dim: dim(n.id),
         wanPorts: ports ? Array.from(ports.entries()).map(([ifName, v]) => ({ ifName, ...v })) : undefined,
       } as PeNodeData,
     };
   });
 
-  const ceUuidOf = new Map(topo.nodes.map((n) => [n.id, n.uuid]));
+  const uuidOf = new Map(topo.nodes.map((n) => [n.id, n.uuid]));
   const hasStatus = Object.keys(statusMap).length > 0;
 
   const edges: Edge<TunnelEdgeData>[] = [
     ...topo.attaches.map((a) => {
-      const s = hasStatus ? (st(ceUuidOf.get(a.ceNodeId) || '') === 'issue' || st(ceUuidOf.get(a.peNodeId) || '') === 'issue' ? 'issue' : null) : null;
+      const peUuid = uuidOf.get(a.peNodeId) || '';
+      const ceUuid = uuidOf.get(a.ceNodeId) || '';
+      const offline = attachOffline(peUuid, ceUuid, runtimeMap);
+      const cfgIssue =
+        hasStatus && (st(ceUuid) === 'issue' || st(peUuid) === 'issue') ? 'issue' : null;
       return {
         id: a.id,
         source: a.peNodeId,
@@ -185,15 +222,21 @@ export function toFlowElements(
         className: dim(a.id) ? 'is-dim' : undefined,
         data: {
           kind: 'attach' as const,
-          label: abbrIfName(a.innerIf) || undefined,
+          label: offline ? '端点离线' : abbrIfName(a.innerIf) || undefined,
+          subLabel: offline && a.innerIf ? abbrIfName(a.innerIf) : undefined,
           focus: a.focus,
-          stroke: s ? STATUS_COLOR.issue : undefined,
+          stroke: offline ? OFFLINE_STROKE : cfgIssue ? STATUS_COLOR.issue : undefined,
+          dashed: offline,
         },
       };
     }),
     ...topo.tunnels.map((t) => {
+      const offline = tunnelPeOffline(topo, t.id, runtimeMap);
       const ts = hasStatus ? tunnelStatus(topo, t.id, statusMap) : null;
       const hover = opts.hoverTunnelId === t.id;
+      let stroke: string | undefined;
+      if (offline) stroke = OFFLINE_STROKE;
+      else if (ts && !(t.focus && ts === 'ok')) stroke = ts === 'ok' ? '#7bc96f' : STATUS_COLOR[ts];
       return {
         id: `t:${t.id}`,
         source: t.source,
@@ -201,17 +244,23 @@ export function toFlowElements(
         sourceHandle: 'c',
         targetHandle: 'c',
         type: 'tunnel',
-        zIndex: t.focus || hover ? 2 : 1,
-        className: `${dim(`t:${t.id}`) ? 'is-dim' : ''}${hover ? ' is-hover' : ''}`.trim() || undefined,
+        zIndex: t.focus || hover || offline ? 2 : 1,
+        className: `${dim(`t:${t.id}`) ? 'is-dim' : ''}${hover ? ' is-hover' : ''}${
+          offline ? ' is-offline' : ''
+        }`.trim() || undefined,
         data: {
           kind: 'tunnel' as const,
-          label: t.name,
-          subLabel: t.hubWanIf ? `WAN ${abbrIfName(t.hubWanIf)}` : undefined,
+          label: offline ? '端点离线' : t.name,
+          subLabel: offline
+            ? t.name + (t.hubWanIf ? ` · WAN ${abbrIfName(t.hubWanIf)}` : '')
+            : t.hubWanIf
+              ? `WAN ${abbrIfName(t.hubWanIf)}`
+              : undefined,
           focus: t.focus || hover,
           groupIndex: t.groupIndex,
           groupSize: t.groupSize,
-          // 当前入口保持品牌蓝；其余按配置态着色（ok 不抢眼，用灰绿）
-          stroke: ts && !(t.focus && ts === 'ok') ? (ts === 'ok' ? '#7bc96f' : STATUS_COLOR[ts]) : undefined,
+          stroke,
+          dashed: offline,
         },
       };
     }),

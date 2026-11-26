@@ -247,6 +247,73 @@ export const attachHubInventoryToConfig = (
   return cfg;
 };
 
+const lanVrfKey = (row: { vrf?: unknown }) => String(row?.vrf ?? '').trim();
+
+/** 已保存 LAN 行与设备 VRF 口对齐：按 VRF 合并，避免编辑区缺 LAN#2 */
+export const mergeHubLanFormRowsForWizard = (
+  savedRows: HubLanFormRow[] | undefined,
+  deviceRows: HubLanFormRow[] | undefined,
+): HubLanFormRow[] => {
+  const saved = Array.isArray(savedRows) ? savedRows.filter((r) => r && typeof r === 'object') : [];
+  const device = Array.isArray(deviceRows) ? deviceRows.filter((r) => r && typeof r === 'object') : [];
+  const savedByVrf = new Map<string, HubLanFormRow>();
+  saved.forEach((row) => {
+    const key = lanVrfKey(row);
+    if (key) savedByVrf.set(key, { ...row });
+  });
+
+  if (!device.length) {
+    return saved.length ? saved : [{}];
+  }
+
+  const merged: HubLanFormRow[] = [];
+  const seen = new Set<string>();
+  for (const devRow of device) {
+    const key = lanVrfKey(devRow);
+    if (!key) continue;
+    const hit = savedByVrf.get(key);
+    merged.push({
+      ...(hit ?? {}),
+      vrf: hit?.vrf ?? devRow.vrf,
+      ifName: normIf(hit?.ifName) || normIf(devRow.ifName) || undefined,
+      ipv4: hit?.ipv4 || devRow.ipv4,
+      ipv6: hit?.ipv6 || devRow.ipv6,
+      asn: hit?.asn ?? devRow.asn,
+      routerId: hit?.routerId || devRow.routerId,
+      routeDistinguisher: hit?.routeDistinguisher || devRow.routeDistinguisher,
+      routeTarget: hit?.routeTarget || devRow.routeTarget,
+      id: hit?.id,
+    });
+    seen.add(key);
+  }
+  saved.forEach((row) => {
+    const key = lanVrfKey(row);
+    if (key && !seen.has(key)) {
+      merged.push(row);
+      seen.add(key);
+    }
+  });
+  return merged.length ? merged : [{}];
+};
+
+const mapInventoryLanToForm = (l: HubLanInventoryItem): HubLanFormRow => ({
+  id: l.id,
+  ifName: l.ifName,
+  vrf: l.vrf,
+  ipv4: l.ipv4,
+  ipv6: l.ipv6,
+  asn: l.privateAsn,
+  routerId: l.routerId,
+  routeDistinguisher: l.routeDistinguisher,
+  routeTarget: l.routeTarget,
+});
+
+const unionLanWithLegacyPe = (lanRows: HubLanFormRow[], legacyPe?: HubPeLegacyWanFields): HubLanFormRow[] => {
+  const extra = Array.isArray(legacyPe?.lanConfigs) ? legacyPe!.lanConfigs! : [];
+  if (!extra.length) return lanRows.length ? lanRows : [{}];
+  return mergeHubLanFormRowsForWizard(lanRows, extra);
+};
+
 /** 从已保存配置还原 HUB_PE 向导表单字段 */
 export const hubInventoryToPeWizardForm = (
   cfg: unknown,
@@ -272,17 +339,7 @@ export const hubInventoryToPeWizardForm = (
         })),
         legacyPe,
       ),
-      lanConfigs: lanSrc.map((l) => ({
-        id: l.id,
-        ifName: l.ifName,
-        vrf: l.vrf,
-        ipv4: l.ipv4,
-        ipv6: l.ipv6,
-        asn: l.privateAsn,
-        routerId: l.routerId,
-        routeDistinguisher: l.routeDistinguisher,
-        routeTarget: l.routeTarget,
-      })),
+      lanConfigs: unionLanWithLegacyPe(lanSrc.map(mapInventoryLanToForm), legacyPe),
     };
   }
   const hubWanInventory: HubWanFormRow[] = legacyPe?.wanDev

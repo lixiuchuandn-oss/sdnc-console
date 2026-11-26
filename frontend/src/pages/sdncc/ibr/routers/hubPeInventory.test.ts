@@ -4,6 +4,7 @@ import {
   buildHubInventoryFromPeWizardValues,
   emptyHubInventory,
   hubInventoryToPeWizardForm,
+  mergeHubLanFormRowsForWizard,
   parseHubInventoryFromConfig,
   stripTowerExtensionsFromDeviceConfig,
 } from './hubPeInventory';
@@ -172,5 +173,40 @@ describe('hubPeInventory', () => {
     const form = hubInventoryToPeWizardForm(cfg);
     expect(form.hubWanInventory).toHaveLength(1);
     expect(form.hubWanInventory[0].id).toBe('w-wiz');
+  });
+
+  it('hubInventoryToPeWizardForm unions pe.lanConfig VRF missing from inventory', () => {
+    const inv = emptyHubInventory();
+    inv.lan.push({
+      id: 'l1',
+      ifName: 'GigabitEthernet 0/8/0',
+      vrf: 10001,
+      privateAsn: 65002,
+      routerId: '23.1.1.2',
+      source: 'role_wizard',
+      createdAt: '2026-01-01',
+    });
+    const cfg = attachHubInventoryToConfig({}, inv);
+    const form = hubInventoryToPeWizardForm(cfg, {
+      lanConfigs: [
+        { ifName: 'GigabitEthernet 0/8/0', vrf: 10001, asn: 65002, routerId: '23.1.1.2' },
+        { ifName: 'GigabitEthernet 0/b/0', vrf: 10002, asn: 65002, routerId: '26.1.1.2' },
+      ],
+    });
+    expect(form.lanConfigs.map((l) => l.vrf)).toEqual([10001, 10002]);
+  });
+
+  it('mergeHubLanFormRowsForWizard keeps saved LAN and appends device-only VRF', () => {
+    const merged = mergeHubLanFormRowsForWizard(
+      [{ ifName: 'GigabitEthernet 0/8/0', vrf: 10001, asn: 65002, routerId: '23.1.1.2' }],
+      [
+        { ifName: 'GigabitEthernet 0/8/0', vrf: 10001, ipv4: '23.1.1.2/24' },
+        { ifName: 'GigabitEthernet 0/b/0', vrf: 10002, ipv4: '26.1.1.2/24', asn: 65002, routerId: '26.1.1.2' },
+      ],
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged[0].routerId).toBe('23.1.1.2');
+    expect(merged[1].vrf).toBe(10002);
+    expect(merged[1].ifName).toBe('GigabitEthernet 0/b/0');
   });
 });

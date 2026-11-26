@@ -25,6 +25,7 @@ import {
   attachHubInventoryToConfig,
   buildHubInventoryFromPeWizardValues,
   hubInventoryToPeWizardForm,
+  mergeHubLanFormRowsForWizard,
   parseHubInventoryFromConfig,
   stripTowerExtensionsFromDeviceConfig,
 } from '../hubPeInventory';
@@ -48,7 +49,13 @@ import {
   validateWanNdProxyIntent,
   wanNdProxyEnabledOn,
 } from '../peWizardNdProxy';
-import { applyPeWizardReferencedChanges } from '../peWizardReferencedPatch';
+import {
+  applyPeWizardReferencedChanges,
+  lockedLanFieldChanges,
+  lockedLanVrfsFromConfig,
+  lockedWanFieldChanges,
+  lockedWanIfNamesFromConfig,
+} from '../peWizardReferencedPatch';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -377,6 +384,53 @@ const PEWizard: React.FC = () => {
   const [activeWanTabKey, setActiveWanTabKey] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  /** 被 SRv6 隧道引用时：现网已存在的 LAN BGP VRF，其 ASN/Router-ID/RD/RT 锁定 */
+  const [tunnelRefNames, setTunnelRefNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!uuid) return;
+    let alive = true;
+    fetchSrv6VrReferences(uuid)
+      .then((refs: any) => {
+        if (!alive) return;
+        if (refs?.count && refs.count > 0) {
+          const names = Array.from(
+            new Set((refs.refs || []).map((r: any) => r?.tunnelName).filter(Boolean)),
+          ) as string[];
+          setTunnelRefNames(names);
+        } else setTunnelRefNames(null);
+      })
+      .catch(() => alive && setTunnelRefNames(null));
+    return () => {
+      alive = false;
+    };
+  }, [uuid]);
+  const lockedLanVrfs = useMemo(
+    () => (tunnelRefNames ? lockedLanVrfsFromConfig(existingCfg) : new Set<string>()),
+    [tunnelRefNames, existingCfg],
+  );
+  const lockedWanIfNames = useMemo(
+    () => (tunnelRefNames ? lockedWanIfNamesFromConfig(existingCfg) : new Set<string>()),
+    [tunnelRefNames, existingCfg],
+  );
+  const lanBgpLockTip = tunnelRefNames
+    ? `VRF ID / ASN / Router-ID / RD / RT 已被隧道${
+        tunnelRefNames.length ? `「${tunnelRefNames.join('、')}」` : ''
+      }引用，如需修改请先删除隧道`
+    : '';
+  /** LAN 第 idx 行的 VRF 已在现网存在且被隧道引用 → BGP 关键字段只读 */
+  const isLanBgpLocked = (idx: number): boolean => {
+    if (!tunnelRefNames) return false;
+    const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
+    const vrf = rows[idx]?.vrf;
+    return vrf != null && String(vrf).trim() !== '' && lockedLanVrfs.has(String(vrf).trim());
+  };
+  /** WAN 第 idx 行接口已在现网存在且被隧道引用 → 禁止删 Tab */
+  const isWanLocked = (idx: number): boolean => {
+    if (!tunnelRefNames) return false;
+    const rows = Array.isArray(watchHubWanInventory) ? watchHubWanInventory : [];
+    const ifName = String(rows[idx]?.ifName ?? '').trim();
+    return Boolean(ifName) && lockedWanIfNames.has(ifName);
+  };
   const existingHubInventory = useMemo(
     () => parseHubInventoryFromConfig(existingCfg),
     [existingCfg],
@@ -840,6 +894,10 @@ const PEWizard: React.FC = () => {
 
     // LAN 分组为空时仍保留 [{}]，避免 Form.List 无行；与 vr2 推断一致
     const lanConfigsForForm = groups.length > 0 ? groups : [{}];
+    const hubDeviceLanGroups = groups.filter((g: any) => {
+      const n = Number(g?.vrf);
+      return Number.isFinite(n) && n >= 4001;
+    });
 
     const fullInferredForForm = {
       ...inferredTop,
@@ -882,7 +940,11 @@ const PEWizard: React.FC = () => {
                 ipv6Via: pcfg.ipv6Via,
               }]
             : [];
-        spokeMirror.hubWanInventory = hubWanFromRole.map((w) => {
+        const hubWanMerged = resolveHubWanRowsForPeWizardForm(hubWanFromRole, ifaceItems, {
+          ipv4_route: routes4,
+          ipv6_route: routes6,
+        });
+        spokeMirror.hubWanInventory = hubWanMerged.map((w) => {
           const ifName = roleText(w.ifName);
           const iface = findInterfaceInDevice(dev, ifName);
           const v4 = pickIpv4RouteForWan(
@@ -890,9 +952,9 @@ const PEWizard: React.FC = () => {
             ifName,
             w.ipv4RouteDest,
             w.ipv4RoutePriority,
-            hubWanFromRole.length === 1,
+            hubWanMerged.length === 1,
           );
-          const v6 = pickIpv6RouteForRole(routes6, w.ipv6Dest, w.ipv6Via, hubWanFromRole.length === 1);
+          const v6 = pickIpv6RouteForRole(routes6, w.ipv6Dest, w.ipv6Via, hubWanMerged.length === 1);
           const dest4 = roleText(v4?.destination) || roleText(w.ipv4RouteDest) || undefined;
           const prio4 =
             v4?.priority !== undefined && v4?.priority !== null
@@ -912,24 +974,37 @@ const PEWizard: React.FC = () => {
           };
         });
         const lanItems = (inv?.lan || []).filter((l) => l.source === 'role_wizard');
-        if (lanItems.length) {
-          const bgpArr = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp : [];
-          spokeMirror.lanConfigs = lanItems.map((l) => {
-            const iface = findInterfaceInDevice(dev, l.ifName);
-            const bgp = bgpArr.find((b: any) => String(b?.vrf) === String(l.vrf));
-            const rdRt = bgp ? extractRdRtFromBgpEntry(bgp) : {};
-            return {
+        const savedLanRows = lanItems.length
+          ? lanItems.map((l) => ({
+              id: l.id,
               vrf: l.vrf,
               ifName: l.ifName,
-              ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', l.ipv4),
-              ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', l.ipv6),
-              asn: l.privateAsn != null ? bgp?.asn : undefined,
-              routerId: roleText(l.routerId) ? bgp?.router_id : undefined,
-              routeDistinguisher: roleText(l.routeDistinguisher) ? rdRt.routeDistinguisher : undefined,
-              routeTarget: roleText(l.routeTarget) ? rdRt.routeTarget : undefined,
-            };
-          });
-        }
+              ipv4: l.ipv4,
+              ipv6: l.ipv6,
+              asn: l.privateAsn,
+              routerId: l.routerId,
+              routeDistinguisher: l.routeDistinguisher,
+              routeTarget: l.routeTarget,
+            }))
+          : spokeMirror.lanConfigs;
+        const bgpArr = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp : [];
+        spokeMirror.lanConfigs = mergeHubLanFormRowsForWizard(savedLanRows, hubDeviceLanGroups).map((l) => {
+          const iface = findInterfaceInDevice(dev, String(l.ifName || ''));
+          const bgp = bgpArr.find((b: any) => l?.vrf != null && String(b?.vrf) === String(l.vrf));
+          const rdRt = bgp ? extractRdRtFromBgpEntry(bgp) : {};
+          return {
+            vrf: l.vrf,
+            ifName: l.ifName,
+            ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', l.ipv4) || l.ipv4,
+            ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', l.ipv6) || l.ipv6,
+            asn: l.asn != null ? bgp?.asn ?? l.asn : undefined,
+            routerId: roleText(l.routerId) ? bgp?.router_id ?? l.routerId : undefined,
+            routeDistinguisher: roleText(l.routeDistinguisher)
+              ? rdRt.routeDistinguisher || l.routeDistinguisher
+              : undefined,
+            routeTarget: roleText(l.routeTarget) ? rdRt.routeTarget || l.routeTarget : undefined,
+          };
+        });
       }
       mirrorForm.setFieldsValue(spokeMirror);
     }
@@ -1015,10 +1090,13 @@ const PEWizard: React.FC = () => {
                       ),
                   }),
                 ),
-                lanConfigs: hubForm.lanConfigs.map((row: any) => ({
-                  ...row,
-                  routerId: roleText(row?.routerId) || routerIdFromIpv4(row?.ipv4),
-                })),
+                lanConfigs: mergeHubLanFormRowsForWizard(
+                  hubForm.lanConfigs.map((row: any) => ({
+                    ...row,
+                    routerId: roleText(row?.routerId) || routerIdFromIpv4(row?.ipv4),
+                  })),
+                  hubDeviceLanGroups,
+                ),
               };
             })()
           : {}),
@@ -1437,8 +1515,18 @@ const PEWizard: React.FC = () => {
       setLoading(true);
       const values = form.getFieldsValue(true);
       let cfg: Record<string, unknown>;
-      let changedLabels: string[] = [];
       if (tunnelReferenced) {
+        const lockedChanges = [
+          ...lockedLanFieldChanges(existingCfg, values.lanConfigs),
+          ...lockedWanFieldChanges(existingCfg, values.hubWanInventory),
+        ];
+        if (lockedChanges.length) {
+          message.error(
+            `该 IBR 已被 SRv6 隧道引用（${refNamesPart}），以下字段影响隧道通路，不能直接修改：${lockedChanges.join('；')}。如需修改，请先删除相关隧道后再调整。`,
+            10,
+          );
+          return;
+        }
         const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
         const base =
           existing && typeof existing === 'object' && !Array.isArray(existing)
@@ -1447,7 +1535,15 @@ const PEWizard: React.FC = () => {
         const patched = applyPeWizardReferencedChanges(base, values, {
           isHubPe,
           existingHubInventory: parseHubInventoryFromConfig(existingCfg) || parseHubInventoryFromConfig(base),
+          fullCfg: buildConfigFromValues(values),
         });
+        if (patched.blockedReasons?.length) {
+          message.error(
+            `该 IBR 已被 SRv6 隧道引用（${refNamesPart}），以下字段影响隧道通路，不能直接修改：${patched.blockedReasons.join('；')}。如需修改，请先删除相关隧道后再调整。`,
+            10,
+          );
+          return;
+        }
         if (!patched.changedLabels.length) {
           message.info(
             `该 IBR 已被 SRv6 隧道引用，未检测到可下发的变更，已跳过设备下发。${refNamesPart}`,
@@ -1456,7 +1552,6 @@ const PEWizard: React.FC = () => {
           return;
         }
         cfg = patched.cfg;
-        changedLabels = patched.changedLabels;
       } else {
         cfg = buildConfigFromValues(values);
       }
@@ -1480,10 +1575,14 @@ const PEWizard: React.FC = () => {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
       message.success(
-        tunnelReferenced
-          ? `该 IBR 已被隧道引用，已按变更字段更新并下发：${changedLabels.join('、')}（${refNamesPart}）。`
-          : '配置已下发',
+        tunnelReferenced ? '该 IBR 已被隧道引用，配置已更新并下发。' : '配置已下发',
       );
+      try {
+        skipEditFormOnNextDeviceReadRef.current = true;
+        await fetchInterfaces(true);
+      } catch {
+        /* 下发已成功，回读失败不改写成功态 */
+      }
     } catch (e: any) {
       message.error(e?.message || '下发失败');
     } finally {
@@ -1553,6 +1652,9 @@ const PEWizard: React.FC = () => {
             </div>
             <Form.List name="hubWanInventory" initialValue={[{}]}>
               {(fields, { add, remove }) => {
+                const blockedWanRemoves = new Set(
+                  fields.map((_, idx) => idx).filter((idx) => isWanLocked(idx)),
+                );
                 const onWanTabEdit = (
                   targetKey: string | React.MouseEvent | React.KeyboardEvent,
                   action: 'add' | 'remove',
@@ -1562,8 +1664,14 @@ const PEWizard: React.FC = () => {
                     String(targetKey),
                     fields.length,
                     activeWanTabKey ?? '0',
+                    { removeBlockedIndexes: blockedWanRemoves },
                   );
-                  if (!plan) return;
+                  if (!plan) {
+                    if (action === 'remove' && blockedWanRemoves.has(Number(targetKey))) {
+                      message.warning('该 WAN 口已被隧道引用，不能删除。如需调整请先删除相关隧道。');
+                    }
+                    return;
+                  }
                   if (plan.action === 'add') {
                     add({});
                     setActiveWanTabKey(plan.nextActiveKey);
@@ -1575,6 +1683,7 @@ const PEWizard: React.FC = () => {
                 const items = fields.map((field, idx) => ({
                   key: String(field.name),
                   label: `WAN 接口 #${idx + 1}`,
+                  closable: !isWanLocked(idx),
                   children: (
                     <div>
                       <Form.Item {...field} name={[field.name, 'id']} hidden>
@@ -1842,6 +1951,9 @@ const PEWizard: React.FC = () => {
           </div>
           <Form.List name="lanConfigs" initialValue={[{}]}>
             {(fields, { add, remove }) => {
+              const blockedLanRemoves = new Set(
+                fields.map((_, idx) => idx).filter((idx) => isLanBgpLocked(idx)),
+              );
               const onLanTabEdit = (
                 targetKey: string | React.MouseEvent | React.KeyboardEvent,
                 action: 'add' | 'remove',
@@ -1851,8 +1963,14 @@ const PEWizard: React.FC = () => {
                   String(targetKey),
                   fields.length,
                   activeLanTabKey ?? '0',
+                  { removeBlockedIndexes: blockedLanRemoves },
                 );
-                if (!plan) return;
+                if (!plan) {
+                  if (action === 'remove' && blockedLanRemoves.has(Number(targetKey))) {
+                    message.warning('该 LAN / VRF 已被隧道引用，不能删除。如需调整请先删除相关隧道。');
+                  }
+                  return;
+                }
                 if (plan.action === 'add') {
                   add({});
                   setActiveLanTabKey(plan.nextActiveKey);
@@ -1864,6 +1982,7 @@ const PEWizard: React.FC = () => {
               const items = fields.map((field, idx) => ({
                 key: String(field.name),
                 label: `LAN 接口 #${idx + 1}`,
+                closable: !isLanBgpLocked(idx),
                 children: (
                   <div>
                     <Form.Item {...field} name={[field.name, 'id']} hidden>
@@ -1882,7 +2001,12 @@ const PEWizard: React.FC = () => {
                           : [{ type: 'number', min: 4001, message: 'VRF ID 最小为 4001' }]
                       }
                     >
-                      <InputNumber style={{ width: '100%' }} placeholder={"例如 9999（4001+）"} min={4001} />
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        placeholder={"例如 9999（4001+）"}
+                        min={4001}
+                        disabled={isLanBgpLocked(idx)}
+                      />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'ifName']} label="LAN 侧接口">
                       <Select
@@ -1907,37 +2031,48 @@ const PEWizard: React.FC = () => {
                     <>
                       <div style={{ height: 12 }} />
                       <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
+                      <div
+                        key={`${field.key}-lock-tip`}
+                        style={{
+                          color: '#d46b08',
+                          fontSize: 12,
+                          margin: '-4px 0 8px 0',
+                          display: isLanBgpLocked(idx) ? 'block' : 'none',
+                        }}
+                      >
+                        {lanBgpLockTip}
+                      </div>
                       <Form.Item
-                        {...field}
+                        key={`${field.key}-asn`}
                         name={[field.name, 'asn']}
                         label="BGP ASN"
                         rules={isHubPe ? [{ required: true, message: '请输入 BGP ASN' }] : undefined}
                       >
-                        <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
+                        <InputNumber style={{ width: '100%' }} placeholder="例如 100" disabled={isLanBgpLocked(idx)} />
                       </Form.Item>
                       <Form.Item
-                        {...field}
+                        key={`${field.key}-routerId`}
                         name={[field.name, 'routerId']}
                         label="BGP Router-ID"
                         rules={isHubPe ? [{ required: true, message: '请输入 BGP Router-ID' }] : undefined}
                       >
-                        <Input placeholder="例如 130.1.1.1" />
+                        <Input placeholder="例如 130.1.1.1" disabled={isLanBgpLocked(idx)} />
                       </Form.Item>
                       <Form.Item
-                        {...field}
+                        key={`${field.key}-rd`}
                         name={[field.name, 'routeDistinguisher']}
                         label="Route Distinguisher（RD）"
                         rules={rdRtFieldRules('RD')}
                       >
-                        <Input placeholder="例如 200:1001" />
+                        <Input placeholder="例如 200:1001" disabled={isLanBgpLocked(idx)} />
                       </Form.Item>
                       <Form.Item
-                        {...field}
+                        key={`${field.key}-rt`}
                         name={[field.name, 'routeTarget']}
                         label="Route Target（RT）"
                         rules={rdRtFieldRules('RT')}
                       >
-                        <Input placeholder="例如 200:100" />
+                        <Input placeholder="例如 200:100" disabled={isLanBgpLocked(idx)} />
                       </Form.Item>
                     </>
                   </div>

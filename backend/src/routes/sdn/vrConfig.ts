@@ -420,8 +420,41 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
       if (cloudName !== undefined) record.cloudName = cloudName;
       if (vmId !== undefined) record.vmId = vmId;
 
-      // P2：有存活隧道引用时，生效配置仅由 baseline+Σcontrib 推导
+      // P2：有存活隧道时生效配置仍由 baseline+Σcontrib 推导；
+      // 角色向导增量先写入基线（pe.lanConfig / inventory / 新接口），再重算。
+      // 合并失败必须非 200，禁止静默跳过导致平台丢 LAN/WAN。
       if (hasSrv6Baseline && srv6Refs.length > 0) {
+        try {
+          const incoming =
+            typeof config === 'object' && config && !Array.isArray(config)
+              ? (config as Record<string, unknown>)
+              : (JSON.parse(jsonStr) as Record<string, unknown>);
+          const { parseSrv6Baseline } = await import('./srv6.baseline');
+          const { mergeRoleWizardIntentIntoBaseline } = await import('./srv6.roleWizardBaseline');
+          const baseline = parseSrv6Baseline(record);
+          if (!baseline) {
+            return res.status(409).json({
+              code: 409,
+              msg: 'SRv6 基线无法解析，已中止保存。请先修复基线或删除相关隧道后再试。',
+              message: 'SRv6 基线无法解析，已中止保存。请先修复基线或删除相关隧道后再试。',
+            });
+          }
+          const nextBaseline = mergeRoleWizardIntentIntoBaseline(baseline, incoming);
+          record.srv6BaselineJson = freezeSrv6BaselineJson(JSON.stringify(nextBaseline));
+          record.srv6BaselineAt = new Date();
+          await repo.save(record);
+        } catch (mergeErr: any) {
+          const status =
+            mergeErr?.statusCode === 400 || mergeErr?.statusCode === 409
+              ? Number(mergeErr.statusCode)
+              : 500;
+          const msg =
+            status === 500
+              ? `角色向导基线合并失败，已中止保存：${errMsg(mergeErr)}`
+              : errMsg(mergeErr);
+          vrConfigLog.warn('role-wizard baseline merge rejected', msg);
+          return res.status(status).json({ code: status, msg, message: msg });
+        }
         await persistSrv6VrEffectiveConfig(uuid);
         const fresh = await repo.findOne({ where: { uuid } });
         if (fresh) {

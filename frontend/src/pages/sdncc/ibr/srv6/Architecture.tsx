@@ -22,7 +22,7 @@ import {
   type Srv6ReconcileReport,
 } from '../../../../services/api';
 import IbrWizardPageHeader from '../lib/IbrWizardPageHeader';
-import { loadIbrVrCatalog } from '../lib/ibrVrCatalog';
+import { loadIbrVrCatalog, syncAndLoadIbrVrCatalog, type IbrVrRow } from '../lib/ibrVrCatalog';
 import {
   abbrIfName,
   buildHubTopology,
@@ -33,16 +33,27 @@ import {
 } from './lib/topology/buildTopology';
 import { TOPO_EDGE_TYPES, TOPO_NODE_TYPES, toFlowElements } from './lib/topology/TopoNodes';
 import {
+  RUNTIME_COLOR,
+  RUNTIME_LABEL,
   STATUS_COLOR,
   STATUS_LABEL,
+  buildRuntimeMap,
   buildStatusMap,
+  countOfflineNodes,
   relatedIds,
+  tunnelPeOffline,
   tunnelStatus,
   type ConfigStatus,
+  type RuntimeStatus,
   type Selection,
   type VrStatus,
 } from './lib/topology/status';
 import TopoDetailDrawer from './lib/topology/TopoDetailDrawer';
+
+const emptyCatalog = (): { vrs: IbrVrRow[]; nameMap: Record<string, string> } => ({
+  vrs: [],
+  nameMap: {},
+});
 
 type ArchFlowToolbarProps = {
   locked: boolean;
@@ -108,7 +119,11 @@ const ArchFlowToolbar: React.FC<ArchFlowToolbarProps> = ({
   );
 };
 
-const ArchFlowLegend: React.FC<{ mode: Srv6Topology['mode']; hasStatus: boolean }> = ({ mode, hasStatus }) => (
+const ArchFlowLegend: React.FC<{
+  mode: Srv6Topology['mode'];
+  hasStatus: boolean;
+  hasRuntime: boolean;
+}> = ({ mode, hasStatus, hasRuntime }) => (
   <div className="srv6-arch-flow-legend" aria-label="图例">
     {mode === 'hub' ? (
       <>
@@ -148,6 +163,21 @@ const ArchFlowLegend: React.FC<{ mode: Srv6Topology['mode']; hasStatus: boolean 
           {STATUS_LABEL[s]}
         </span>
       ))}
+    {hasRuntime ? (
+      <>
+        <span className="srv6-arch-legend-sep" />
+        {(['running', 'stopped', 'warning'] as RuntimeStatus[]).map((s) => (
+          <span key={s}>
+            <i className="srv6-topo-status-dot" style={{ background: RUNTIME_COLOR[s] }} />
+            {RUNTIME_LABEL[s]}
+          </span>
+        ))}
+        <span>
+          <i className="srv6-arch-legend-line is-offline" />
+          端点离线
+        </span>
+      </>
+    ) : null}
   </div>
 );
 
@@ -155,6 +185,7 @@ type ArchCanvasProps = {
   topo: Srv6Topology;
   nameOf: (uuid: string) => string;
   statusMap: Record<string, VrStatus>;
+  runtimeMap: Record<string, RuntimeStatus>;
   selection: Selection;
   hoverTunnelId: string | null;
   listOpen: boolean;
@@ -168,6 +199,7 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
   topo,
   nameOf,
   statusMap,
+  runtimeMap,
   selection,
   hoverTunnelId,
   listOpen,
@@ -179,8 +211,8 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
   const [locked, setLocked] = useState(false);
   const related = useMemo(() => relatedIds(topo, selection), [topo, selection]);
   const { nodes, edges } = useMemo(
-    () => toFlowElements(topo, nameOf, { statusMap, related, hoverTunnelId }),
-    [topo, nameOf, statusMap, related, hoverTunnelId],
+    () => toFlowElements(topo, nameOf, { statusMap, runtimeMap, related, hoverTunnelId }),
+    [topo, nameOf, statusMap, runtimeMap, related, hoverTunnelId],
   );
   return (
     <ReactFlow
@@ -217,7 +249,11 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
         onToggleTunnelList={onToggleTunnelList}
         onRefresh={onRefresh}
       />
-      <ArchFlowLegend mode={topo.mode} hasStatus={Object.values(statusMap).some((s) => s.status !== 'unknown')} />
+      <ArchFlowLegend
+        mode={topo.mode}
+        hasStatus={Object.values(statusMap).some((s) => s.status !== 'unknown')}
+        hasRuntime={Object.keys(runtimeMap).length > 0}
+      />
     </ReactFlow>
   );
 };
@@ -268,9 +304,15 @@ const Srv6ArchitecturePage: React.FC = () => {
   const setHub = (h: Srv6HubVrStatus | null) => setHubs(h ? [h] : []);
   const [reconcile, setReconcile] = useState<Srv6ReconcileReport | null>(null);
   const [vrNameMap, setVrNameMap] = useState<Record<string, string>>({});
+  const [vrRows, setVrRows] = useState<IbrVrRow[]>([]);
   const [listOpen, setListOpen] = useState(false);
   const [selection, setSelection] = useState<Selection>(null);
   const [hoverTunnelId, setHoverTunnelId] = useState<string | null>(null);
+
+  const applyCatalog = useCallback((catalog: { vrs?: IbrVrRow[]; nameMap?: Record<string, string> } | null) => {
+    setVrNameMap(catalog?.nameMap || {});
+    setVrRows(Array.isArray(catalog?.vrs) ? catalog!.vrs! : []);
+  }, []);
 
   const vrLabel = useCallback(
     (uuid?: string | null) => {
@@ -301,14 +343,18 @@ const Srv6ArchitecturePage: React.FC = () => {
         setSelection(null);
       }
       try {
+        // 显式刷新：先 sync CSMCTL→缓存；首屏仅 force 读缓存（避免每次进页都全量 refresh）
+        const loadCatalog = soft
+          ? () => syncAndLoadIbrVrCatalog().catch(() => emptyCatalog())
+          : () => loadIbrVrCatalog({ force: true }).catch(() => emptyCatalog());
         // P2：优先走聚合接口（一次请求 + 双 Hub + 拓扑内精确对账）；后端未升级时回退旧链路
         const [agg, catalogFirst] = await Promise.all([
           fetchSrv6Topology(tunnelId).catch(() => null),
-          loadIbrVrCatalog({ force: true }).catch(() => ({ nameMap: {} as Record<string, string> })),
+          loadCatalog(),
         ]);
         if (seq !== loadSeqRef.current) return;
         if (agg && Array.isArray(agg.tunnels)) {
-          setVrNameMap(catalogFirst.nameMap || {});
+          applyCatalog(catalogFirst);
           const all = agg.tunnels.map(toTunnelLite);
           setTunnels(all);
           setFocusTunnel(all.find((t) => t.id === agg.focusTunnelId) || all[0] || null);
@@ -320,12 +366,12 @@ const Srv6ArchitecturePage: React.FC = () => {
         const [detail, list, catalog, recon] = await Promise.all([
           fetchSrv6Tunnel(tunnelId),
           fetchSrv6Tunnels({ skipCache: true }),
-          loadIbrVrCatalog({ force: true }).catch(() => ({ nameMap: {} as Record<string, string> })),
+          loadCatalog(),
           // 对账只读；失败不阻塞拓扑，状态降级为「未对账」
           fetchSrv6Reconcile().catch(() => null),
         ]);
         if (seq !== loadSeqRef.current) return;
-        setVrNameMap(catalog.nameMap || {});
+        applyCatalog(catalog);
         setReconcile(recon && Array.isArray(recon.items) ? recon : null);
         const all = (Array.isArray(list) ? list : []).map(toTunnelLite);
         setTunnels(all);
@@ -357,7 +403,7 @@ const Srv6ArchitecturePage: React.FC = () => {
         }
       }
     },
-    [tunnelId],
+    [tunnelId, applyCatalog],
   );
 
   useEffect(() => {
@@ -374,13 +420,19 @@ const Srv6ArchitecturePage: React.FC = () => {
   }, [hubs, tunnels, focusTunnel]);
 
   const statusMap = useMemo(() => (topo ? buildStatusMap(topo, reconcile) : {}), [topo, reconcile]);
+  const runtimeMap = useMemo(() => buildRuntimeMap(vrRows), [vrRows]);
   const summary = topo ? summarizeTopology(topo) : null;
   const issueTunnels = topo ? topo.tunnels.filter((t) => tunnelStatus(topo, t.id, statusMap) === 'issue').length : 0;
+  const offlineNodes = topo ? countOfflineNodes(topo, runtimeMap) : 0;
 
   const tunnelRows = useMemo(() => {
     if (!topo) return [];
-    return topo.tunnels.map((t) => ({ ...t, status: tunnelStatus(topo, t.id, statusMap) }));
-  }, [topo, statusMap]);
+    return topo.tunnels.map((t) => ({
+      ...t,
+      status: tunnelStatus(topo, t.id, statusMap),
+      peOffline: tunnelPeOffline(topo, t.id, runtimeMap),
+    }));
+  }, [topo, statusMap, runtimeMap]);
 
   const enterTunnel = (id: string) =>
     navigate(`/admin/interconnect/srv6/architecture?tunnelId=${encodeURIComponent(id)}`);
@@ -436,6 +488,11 @@ const Srv6ArchitecturePage: React.FC = () => {
                     隧道 <b>{summary.tunnels}</b>
                     {issueTunnels ? <em className="is-issue">（差异 {issueTunnels}）</em> : null}
                   </span>
+                  {offlineNodes ? (
+                    <span>
+                      离线节点 <b className="is-issue">{offlineNodes}</b>
+                    </span>
+                  ) : null}
                   {!reconcile ? <span className="is-muted">对账不可用</span> : null}
                 </div>
               ) : null}
@@ -443,6 +500,7 @@ const Srv6ArchitecturePage: React.FC = () => {
                 topo={topo}
                 nameOf={vrLabel}
                 statusMap={statusMap}
+                runtimeMap={runtimeMap}
                 selection={selection}
                 hoverTunnelId={hoverTunnelId}
                 listOpen={listOpen}
@@ -488,9 +546,15 @@ const Srv6ArchitecturePage: React.FC = () => {
                     fixed: 'left',
                     render: (name: string, r) => (
                       <Space>
-                        <i className="srv6-topo-status-dot" style={{ background: STATUS_COLOR[r.status] }} />
+                        <i
+                          className="srv6-topo-status-dot"
+                          style={{
+                            background: r.peOffline ? RUNTIME_COLOR.stopped : STATUS_COLOR[r.status],
+                          }}
+                        />
                         <span>{name}</span>
                         {r.focus ? <Tag color="blue">当前</Tag> : null}
+                        {r.peOffline ? <Tag color="error">端点离线</Tag> : null}
                       </Space>
                     ),
                   },
@@ -498,6 +562,11 @@ const Srv6ArchitecturePage: React.FC = () => {
                     title: '配置态',
                     key: 'status',
                     render: (_: unknown, r) => STATUS_LABEL[r.status as ConfigStatus],
+                  },
+                  {
+                    title: '运行态',
+                    key: 'runtime',
+                    render: (_: unknown, r) => (r.peOffline ? '端点离线' : '端点在线'),
                   },
                   {
                     title: topo.mode === 'hub' ? 'Hub PE' : 'PE-A',
@@ -544,6 +613,7 @@ const Srv6ArchitecturePage: React.FC = () => {
             topo={topo}
             selection={selection}
             statusMap={statusMap}
+            runtimeMap={runtimeMap}
             nameOf={vrLabel}
             onClose={() => setSelection(null)}
             onSelectTunnel={(id) => setSelection({ kind: 'tunnel', id })}
