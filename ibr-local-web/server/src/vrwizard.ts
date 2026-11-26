@@ -29,15 +29,17 @@ export {
 	readNetdevLinkSnapshot,
 	parseLinkSpeedToMbps,
 	parseVbrasShowInterfaceAddress,
+	parseVbrasTapInject,
 	normalizePciBdfForMatch,
 	parseVbrasShowHardwareInterfaces,
 	fetchVbrasHardwareTelemetry,
 	fetchVbrasInterfaceTelemetry,
 	buildNicRolesSnapshot,
 } from './nicRolesSnapshot.js';
-import { pciToVppCliIfname, normalizeVppCliIfname } from './pciVpp.js';
+import { pciToVppCliIfname, normalizeVppCliIfname, pciToClishInterfaceHeader } from './pciVpp.js';
 export { pciToVppCliIfname, normalizeVppCliIfname };
 export { runVbrasCli } from './vbrasCli.js';
+import * as startupConfigMerge from './services/network/startupConfigMerge.js';
 
 export type JsonObject = Record<string, unknown>;
 
@@ -738,12 +740,7 @@ export function pickAttachPci(params: {
 }
 
 export function pciToGigabitEthernet(pci: string): string {
-	const m = /^([0-9a-fA-F]{4}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])$/.exec(pci.trim());
-	if (!m) throw new Error(`Invalid pci format: ${pci}`);
-	const bus = Number.parseInt(m[2], 16);
-	const dev = Number.parseInt(m[3], 16);
-	const fn = Number.parseInt(m[4], 10);
-	return `interface GigabitEthernet ${bus}/${dev}/${fn}`;
+	return pciToClishInterfaceHeader(pci);
 }
 
 export function writeVbrasCliStartupConfig(params: {
@@ -752,22 +749,17 @@ export function writeVbrasCliStartupConfig(params: {
 	pciNics: PciNic[];
 	selection?: InitNicSelection[] | undefined;
 	attachPci?: string[] | undefined;
-}): { content: string } {
+	/** 默认 true：按口合并，保留全局段。false 为旧行为整文件覆盖（不推荐）。 */
+	merge?: boolean;
+}): { content: string; preview?: string } {
 	const { paths, mode, pciNics, selection, attachPci } = params;
-	const configLines: string[] = [];
+	const merge = params.merge !== false;
 
+	let ordered: string[] = [];
 	if (mode === 'dhcp') {
-		for (const dev of pciNics) {
-			try {
-				configLines.push('!');
-				configLines.push(pciToGigabitEthernet(dev.pci));
-				configLines.push(' ip address dhcp');
-				configLines.push(' no shutdown');
-			} catch {
-			}
-		}
-		configLines.push('!');
-		configLines.push('ipsec enable');
+		const mgmt =
+			pciNics.find((d) => Array.isArray(d.ifnames) && d.ifnames.some(Boolean))?.pci ?? null;
+		ordered = pciNics.map((d) => d.pci).filter((p) => p !== mgmt);
 	} else {
 		let selectedWan: string | null = null;
 		const selectedLans: string[] = [];
@@ -784,24 +776,45 @@ export function writeVbrasCliStartupConfig(params: {
 				if (p && !selectedLans.includes(p)) selectedLans.push(p);
 			}
 		}
-
-		const ordered = [selectedWan, ...selectedLans];
-		for (const pci of ordered) {
-			if (!pci) continue;
-			try {
-				configLines.push('!');
-				configLines.push(pciToGigabitEthernet(pci));
-				configLines.push(' no shutdown');
-			} catch {
-			}
-		}
-		configLines.push('!');
-		configLines.push('ipsec enable');
+		ordered = [selectedWan, ...selectedLans].filter((x): x is string => Boolean(x));
 	}
 
+	if (merge) {
+		const {
+			buildCleanInterfaceStanza,
+			mergeStartupInterfaceStanzas,
+			readStartupConfigFile,
+			writeStartupConfigFile,
+		} = startupConfigMerge;
+		const existing = readStartupConfigFile(paths.vbrasCliStartupConf);
+		const stanzasByPci = ordered.map((pci) => ({
+			pci,
+			stanza: buildCleanInterfaceStanza(pci, mode === 'dhcp' ? 'dhcp' : 'static'),
+		}));
+		const merged = mergeStartupInterfaceStanzas({
+			existingContent: existing,
+			stanzasByPci,
+			removeSubinterfaces: true,
+		});
+		writeStartupConfigFile(paths.vbrasCliStartupConf, merged.content);
+		return { content: merged.content, preview: merged.preview };
+	}
+
+	const configLines: string[] = [];
+	for (const pci of ordered) {
+		try {
+			configLines.push('!');
+			configLines.push(pciToGigabitEthernet(pci));
+			if (mode === 'dhcp') configLines.push(' ip address dhcp');
+			configLines.push(' no shutdown');
+		} catch {
+			/* skip bad pci */
+		}
+	}
+	configLines.push('!');
 	const content = configLines.join('\n') + '\n';
 	writeTextAtomic(paths.vbrasCliStartupConf, content);
-	return { content };
+	return { content, preview: content };
 }
 
 function runHostCmd(args: string[], timeoutMs: number): string {

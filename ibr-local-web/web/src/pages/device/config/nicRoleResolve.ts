@@ -24,7 +24,7 @@ export type NicRoleRowLike = {
 	attached?: boolean;
 	mac?: string;
 	os?: { name?: string; speed_grade?: string; speed_mbps?: number | null };
-	vbras?: { name?: string; ip?: string; speed_grade?: string; speed_mbps?: number | null };
+	vbras?: { name?: string; ip?: string; ipv6?: string; speed_grade?: string; speed_mbps?: number | null };
 };
 
 /** 按 PCI 查找 nic_roles 行（勿用数组下标，顺序可能与 sysfs 枚举不一致） */
@@ -34,13 +34,16 @@ export function findNicRoleByPci(roles: NicRoleRowLike[] | null | undefined, pci
 	return (roles ?? []).find((r) => String(r?.pci ?? '').trim() === p);
 }
 
-/** 与 VPP `show interface` / vbras CLI 一致：GigabitEthernet2/2/0（无空格）。 */
+/**
+ * 与 VPP `show interface` / vbras CLI 一致：GigabitEthernet2/2/0（无空格）。
+ * 槽位为十六进制无前导零：`0000:00:0a.0` → `GigabitEthernet0/a/0`（不是 `0/10/0`）。
+ */
 export function pciToVbrasIfname(pci: string): string {
 	const m = /^([0-9a-fA-F]{4}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])$/.exec(pci.trim());
 	if (!m) return '';
-	const bus = Number.parseInt(m[2], 16);
-	const dev = Number.parseInt(m[3], 16);
-	const fn = Number.parseInt(m[4], 10);
+	const bus = Number.parseInt(m[2], 16).toString(16);
+	const dev = Number.parseInt(m[3], 16).toString(16);
+	const fn = Number.parseInt(m[4], 10).toString(16);
 	return `GigabitEthernet${bus}/${dev}/${fn}`;
 }
 
@@ -54,17 +57,21 @@ function firstNonEmptyToken(xs: unknown[] | undefined): string {
 }
 
 /**
- * 初始化/扩容下拉标签：优先内核网卡名，其次上次 OS 名，再次 VPP 口名，并拼接 PCI、MAC。
- * 已被 VPP 接管的口没有 ens*，用 GigabitEthernetB/D/F 识别。
+ * 初始化/扩容下拉标签：有内核网卡名用 ens*；已被 VPP 接管（无 ens*）用 CLISH/VPP 口名，
+ * 不要回落到历史 OS 名（否则 WAN/LAN 会仍显示 ens7 而辅助口显示 GigabitEthernet…）。
  */
 export function formatPciNicSelectLabel(nic: PciNicBrief | null | undefined, role?: NicRoleRowLike | null): string {
 	const pci = String(nic?.pci ?? '').trim();
 	const liveIf = firstNonEmptyToken(nic?.ifnames);
 	const lastOs = String(role?.os?.name ?? '').trim();
-	const vpp = String(nic?.vpp_ifname ?? '').trim() || (pci ? pciToVbrasIfname(pci) : '');
+	const vbrasName = String(role?.vbras?.name ?? '').trim();
+	const vpp =
+		String(nic?.vpp_ifname ?? '').trim() ||
+		vbrasName ||
+		(pci ? pciToVbrasIfname(pci) : '');
 	const mac = firstNonEmptyToken(nic?.macs) || String(role?.mac ?? '').trim();
 	const macClean = mac && mac !== '-' ? mac : '';
-	const name = liveIf || lastOs || vpp;
+	const name = liveIf || vpp || lastOs;
 	const parts: string[] = [];
 	if (name) parts.push(name);
 	if (pci) parts.push(pci);
@@ -106,6 +113,32 @@ export function resolveNicDisplayIp(
 	lastApplyIp?: unknown,
 ): string {
 	return normalizeIp(netOverviewIp) || normalizeIp(vbrasConfIp) || normalizeIp(lastApplyIp);
+}
+
+function isIpv6LinkLocalToken(p: string): boolean {
+	const addr = p.split('/')[0]?.toLowerCase() ?? '';
+	return addr === 'fe80' || addr.startsWith('fe80:');
+}
+
+export function splitIpFamilies(field: unknown): { v4: string; v6: string } {
+	const raw = normalizeIp(field);
+	if (!raw) return { v4: '', v6: '' };
+	const parts = raw
+		.split(/[,\s]+/)
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const v4 = parts.filter((p) => p.includes('.') && !p.includes(':')).join(', ');
+	const v6 = parts.filter((p) => p.includes(':') && !isIpv6LinkLocalToken(p)).join(', ');
+	return { v4, v6 };
+}
+
+export function resolveNicDisplayIpByFamily(family: 'v4' | 'v6', ...sources: unknown[]): string {
+	for (const s of sources) {
+		const split = splitIpFamilies(s);
+		const v = family === 'v4' ? split.v4 : split.v6;
+		if (v) return v.split(',')[0]!.trim();
+	}
+	return '';
 }
 
 type NicSpeedSide = { speed_grade?: string; speed_mbps?: number | null };

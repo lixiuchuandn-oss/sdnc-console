@@ -180,7 +180,6 @@ export function NicExpandPage() {
 												? [
 														<Button
 															key="rm"
-															danger
 															size="small"
 															loading={saving}
 															onClick={async () => {

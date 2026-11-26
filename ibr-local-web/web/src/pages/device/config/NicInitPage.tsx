@@ -207,7 +207,7 @@ export function NicInitPage() {
 										<div>
 											<Typography.Text type="secondary">WAN</Typography.Text>
 											<div>
-												<Typography.Text strong style={{ color: '#389e0d' }}>
+												<Typography.Text style={{ color: '#389e0d' }}>
 													{labelForPci(status.wan_pci)}
 												</Typography.Text>
 											</div>
@@ -217,7 +217,7 @@ export function NicInitPage() {
 										<div>
 											<Typography.Text type="secondary">LAN</Typography.Text>
 											<div>
-												<Typography.Text strong style={{ color: '#389e0d' }}>
+												<Typography.Text style={{ color: '#389e0d' }}>
 													{labelForPci(status.lan_pci)}
 												</Typography.Text>
 											</div>
@@ -232,7 +232,7 @@ export function NicInitPage() {
 											<div key={pci}>
 												<Typography.Text type="secondary">辅助口</Typography.Text>
 												<div>
-													<Typography.Text strong style={{ color: '#389e0d' }}>
+													<Typography.Text style={{ color: '#389e0d' }}>
 														{labelForPci(pci)}
 													</Typography.Text>
 												</div>
