@@ -30,8 +30,12 @@ export function createNicsAndApplyRouter(): Router {
 			const result = await applyNetConfig({
 				scope: s,
 				public_ip: req.body?.public_ip,
-				public_gw: req.body?.public_gw ?? null,
+				public_ipv6: req.body?.public_ipv6,
+				...(Object.prototype.hasOwnProperty.call(req.body ?? {}, 'public_gw')
+					? { public_gw: req.body?.public_gw ?? null }
+					: {}),
 				private_ip: req.body?.private_ip,
+				private_ipv6: req.body?.private_ipv6,
 			});
 			res.json(result);
 		} catch (e) {

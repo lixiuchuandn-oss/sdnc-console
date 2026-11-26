@@ -1,5 +1,5 @@
 import { RightOutlined } from '@ant-design/icons';
-import { Button, Form, Input, List, Spin, Typography } from 'antd';
+import { App as AntApp, Button, Form, Input, List, Space, Spin, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client';
 import { BlockHeader } from '../../../components/BlockHeader';
@@ -13,21 +13,25 @@ import {
 	findNicRoleByPci,
 	normalizeIp,
 	pciToVbrasIfname,
-	resolveNicDisplayIp,
+	resolveNicDisplayIpByFamily,
 	resolveWanLanPci,
+	splitIpFamilies,
 	type NicRoleRowLike,
 } from './nicRoleResolve';
+
+const SET_IP_PAGE_DESC =
+	'配置 WAN、LAN 及辅助网口地址。新机首次可用本页修正；已由 SDNC 下发业务配置后，口地址以 SDNC 为准，本地再改可能与控制器不一致，需拉平时请到仪表板「从控制器同步配置」。';
 
 type NicRoleRow = NicRoleRowLike & {
 	name?: string;
 	attached?: boolean;
 	os?: { name?: string; ip?: string; state?: string };
-	vbras?: { name?: string; ip?: string; state?: string; gateway?: string | null };
+	vbras?: { name?: string; ip?: string; ipv6?: string; state?: string; gateway?: string | null };
 };
 
 type StatusResp = {
 	init_mode?: 'static' | 'dhcp';
-	pci_nics?: Array<{ pci?: string; ifnames?: string[]; macs?: string[] }>;
+	pci_nics?: Array<{ pci?: string; ifnames?: string[]; macs?: string[]; driver?: string; vpp_ifname?: string }>;
 	mgmt_pci?: string | null;
 	wan_pci?: string | null;
 	lan_pci?: string | null;
@@ -37,21 +41,100 @@ type StatusResp = {
 		lan?: { name: string; ip: string; source: 'os' | 'vpp'; attached: boolean; gateway?: string | null; identity_missing?: boolean };
 	};
 	net_init_ok?: boolean;
-	last_apply?: { public_ip?: string; public_gw?: string | null; private_ip?: string } | null;
-	extra_lans?: Array<{ ifname: string; cidr: string }> | null;
+	last_apply?: {
+		public_ip?: string;
+		public_ipv6?: string;
+		public_gw?: string | null;
+		private_ip?: string;
+		private_ipv6?: string;
+	} | null;
+	extra_lans?: Array<{ ifname: string; cidr?: string; ipv6?: string }> | null;
 	nic_roles?: { roles?: NicRoleRow[] } | null;
 };
 
 export function SetIpPage() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const { message } = AntApp.useApp();
 	const [saving, setSaving] = useState(false);
-	const [result, setResult] = useState<string[]>([]);
 	const [status, setStatus] = useState<StatusResp | null>(null);
 	const [extraSaving, setExtraSaving] = useState(false);
 	const [extraError, setExtraError] = useState<string | null>(null);
-	const [extraResult, setExtraResult] = useState<string[]>([]);
 	const [extraCidrByIfname, setExtraCidrByIfname] = useState<Record<string, string>>({});
+	const [extraIpv6ByIfname, setExtraIpv6ByIfname] = useState<Record<string, string>>({});
+
+	const [form] = Form.useForm<{
+		public_ip?: string;
+		public_ipv6?: string;
+		private_ip?: string;
+		private_ipv6?: string;
+	}>();
+
+	const hydrateFromStatus = (data: StatusResp) => {
+		setStatus(data);
+		const initMode = data.init_mode === 'dhcp' ? 'dhcp' : 'static';
+		const roles = Array.isArray(data.nic_roles?.roles) ? data.nic_roles?.roles ?? [] : [];
+		const { wanPci, lanPci } = resolveWanLanPci({ wanPci: data.wan_pci, lanPci: data.lan_pci });
+		const wanRow = findNicRoleByPci(roles, wanPci);
+		const lanRow = findNicRoleByPci(roles, lanPci);
+		form.setFieldsValue({
+			public_ip:
+				resolveNicDisplayIpByFamily('v4', data.net_overview?.wan?.ip, wanRow?.vbras?.ip, data.last_apply?.public_ip) ||
+				undefined,
+			public_ipv6:
+				resolveNicDisplayIpByFamily(
+					'v6',
+					data.net_overview?.wan?.ip,
+					wanRow?.vbras?.ipv6,
+					wanRow?.vbras?.ip,
+					data.last_apply?.public_ipv6,
+				) || undefined,
+			private_ip:
+				resolveNicDisplayIpByFamily('v4', data.net_overview?.lan?.ip, lanRow?.vbras?.ip, data.last_apply?.private_ip) ||
+				undefined,
+			private_ipv6:
+				resolveNicDisplayIpByFamily(
+					'v6',
+					data.net_overview?.lan?.ip,
+					lanRow?.vbras?.ipv6,
+					lanRow?.vbras?.ip,
+					data.last_apply?.private_ipv6,
+				) || undefined,
+		});
+		setExtraError(null);
+		if (initMode === 'static') {
+			const mgmt = String(data.mgmt_pci ?? '').trim();
+			const attach = Array.isArray(data.os_nic_attach_pci)
+				? data.os_nic_attach_pci.map((x) => String(x).trim()).filter(Boolean)
+				: [];
+			const extraRows = roles
+				.filter((r) => {
+					const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
+					if (!pci || pci === wanPci || pci === lanPci || pci === mgmt) return false;
+					if (attach.length > 0 && !attach.includes(pci)) return false;
+					return !!r?.attached;
+				})
+				.slice(0, 5);
+			const nextV4: Record<string, string> = {};
+			const nextV6: Record<string, string> = {};
+			for (const r of extraRows) {
+				const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
+				if (!pci) continue;
+				const ifname = pciToVbrasIfname(pci);
+				if (!ifname) continue;
+				const fromIp = splitIpFamilies(r?.vbras?.ip);
+				const v4 = fromIp.v4 || normalizeIp(r?.vbras?.ip);
+				const v6 = normalizeIp(r?.vbras?.ipv6) || fromIp.v6;
+				if (v4 && !v4.includes(':')) nextV4[ifname] = v4.split(',')[0]!.trim();
+				if (v6) nextV6[ifname] = v6.split(',')[0]!.trim();
+			}
+			setExtraCidrByIfname(nextV4);
+			setExtraIpv6ByIfname(nextV6);
+		} else {
+			setExtraCidrByIfname({});
+			setExtraIpv6ByIfname({});
+		}
+	};
 
 	const nicRolesEditor = useConfigFileEditor({
 		load: async () => {
@@ -65,14 +148,9 @@ export function SetIpPage() {
 		},
 		onSaved: async () => {
 			const { data: nextStatus } = await api.get<StatusResp>('/status');
-			setStatus(nextStatus);
+			hydrateFromStatus(nextStatus);
 		},
 	});
-
-	const [form] = Form.useForm<{
-		public_ip?: string;
-		private_ip?: string;
-	}>();
 
 	useEffect(() => {
 		let cancelled = false;
@@ -82,45 +160,7 @@ export function SetIpPage() {
 			try {
 				const { data } = await api.get<StatusResp>('/status');
 				if (cancelled) return;
-				setStatus(data);
-				const initMode = data.init_mode === 'dhcp' ? 'dhcp' : 'static';
-				const roles = Array.isArray(data.nic_roles?.roles) ? data.nic_roles?.roles ?? [] : [];
-				const { wanPci, lanPci } = resolveWanLanPci({ wanPci: data.wan_pci, lanPci: data.lan_pci });
-				const wanRow = findNicRoleByPci(roles, wanPci);
-				const lanRow = findNicRoleByPci(roles, lanPci);
-				const wanIp = resolveNicDisplayIp(data.net_overview?.wan?.ip, wanRow?.vbras?.ip, data.last_apply?.public_ip);
-				const lanIp = resolveNicDisplayIp(data.net_overview?.lan?.ip, lanRow?.vbras?.ip, data.last_apply?.private_ip);
-				form.setFieldsValue({
-					public_ip: wanIp || undefined,
-					private_ip: lanIp || undefined,
-				});
-				setResult([]);
-				setExtraResult([]);
-				setExtraError(null);
-				if (initMode === 'static') {
-					const mgmt = String(data.mgmt_pci ?? '').trim();
-					const attach = Array.isArray(data.os_nic_attach_pci)
-						? data.os_nic_attach_pci.map((x) => String(x).trim()).filter(Boolean)
-						: [];
-					const extraRows = roles.filter((r) => {
-						const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-						if (!pci || pci === wanPci || pci === lanPci || pci === mgmt) return false;
-						if (attach.length > 0 && !attach.includes(pci)) return false;
-						return !!r?.attached;
-					}).slice(0, 5);
-					const next: Record<string, string> = {};
-					for (const r of extraRows) {
-						const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-						if (!pci) continue;
-						const ifname = pciToVbrasIfname(pci);
-						if (!ifname) continue;
-						const cidr = normalizeIp(r?.vbras?.ip);
-						if (cidr) next[ifname] = cidr;
-					}
-					setExtraCidrByIfname(next);
-				} else {
-					setExtraCidrByIfname({});
-				}
+				hydrateFromStatus(data);
 			} catch (e) {
 				if (!cancelled) setError(e instanceof Error ? e.message : '加载失败');
 			} finally {
@@ -135,7 +175,7 @@ export function SetIpPage() {
 	if (loading) {
 		return (
 			<PageStack>
-				<PageHeader title="设定网卡 IP" description="配置 WAN、LAN 及辅助网口的 IP 地址。" />
+				<PageHeader title="设置网口IP" description={SET_IP_PAGE_DESC} />
 				<ContentBlock>
 					<Card variant="padded">
 						<Spin />
@@ -148,7 +188,7 @@ export function SetIpPage() {
 	if (!status) {
 		return (
 			<PageStack>
-				<PageHeader title="设定网卡 IP" description="配置 WAN、LAN 及辅助网口的 IP 地址。" />
+				<PageHeader title="设置网口IP" description={SET_IP_PAGE_DESC} />
 				<ContentBlock>
 					<Card variant="padded">
 						<Typography.Paragraph type="danger" style={{ marginTop: 0 }}>
@@ -184,8 +224,10 @@ export function SetIpPage() {
 			const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
 			const ifname = pci ? pciToVbrasIfname(pci) : '';
 			const attached = !!r?.attached;
-			const currentIp = normalizeIp(r?.vbras?.ip) || '-';
-			return { idx: i + 4, pci, ifname, attached, currentIp };
+			const fromIp = splitIpFamilies(r?.vbras?.ip);
+			const currentIp = fromIp.v4 || '-';
+			const currentIpv6 = normalizeIp(r?.vbras?.ipv6) || fromIp.v6 || '-';
+			return { idx: i + 4, pci, ifname, attached, currentIp, currentIpv6 };
 		})
 		.filter((x) => !!x.pci);
 	const extraHasEditable = identityReady && extraCandidates.some((x) => x.attached && !!x.ifname);
@@ -193,7 +235,6 @@ export function SetIpPage() {
 	const applyExtraLans = async () => {
 		setExtraSaving(true);
 		setExtraError(null);
-		setExtraResult([]);
 		try {
 			const items = roles
 				.filter((r) => {
@@ -208,15 +249,17 @@ export function SetIpPage() {
 					const ifname = pci ? pciToVbrasIfname(pci) : '';
 					const attached = !!r?.attached;
 					const cidr = ifname ? String(extraCidrByIfname[ifname] ?? '').trim() : '';
-					if (!attached || !ifname || !cidr) return null;
-					return { ifname, cidr };
+					const ipv6 = ifname ? String(extraIpv6ByIfname[ifname] ?? '').trim() : '';
+					// 空地址也要提交，后端据此清除旧配置；勿因空串丢弃整口
+					if (!attached || !ifname) return null;
+					return { ifname, cidr, ipv6 };
 				})
-				.filter((x): x is { ifname: string; cidr: string } => !!x);
+				.filter((x): x is { ifname: string; cidr: string; ipv6: string } => !!x);
 			const { data } = await api.post<{ ok: boolean; logs?: string[]; error?: string }>('/extra_lans/apply', { items });
 			if (!data?.ok) throw new Error(data?.error || '配置失败');
-			setExtraResult(Array.isArray(data.logs) ? data.logs.map((x) => String(x)) : []);
+			message.success('辅助网卡 IP 已应用');
 			const { data: nextStatus } = await api.get<StatusResp>('/status');
-			setStatus(nextStatus);
+			hydrateFromStatus(nextStatus);
 		} catch (e) {
 			setExtraError(e instanceof Error ? e.message : '配置失败');
 		} finally {
@@ -224,19 +267,25 @@ export function SetIpPage() {
 		}
 	};
 
-	const wanCidrRule = {
-		pattern: /^\s*\d+\.\d+\.\d+\.\d+\/\d{1,2}\s*$/,
-		message: '示例：10.0.0.2/24',
-	} as const;
-	const lanCidrRule = {
-		pattern: /^\s*\d+\.\d+\.\d+\.\d+\/\d{1,2}\s*$/,
-		message: '示例：192.168.1.1/24',
-	} as const;
+	const optionalV4Rule = {
+		validator: async (_: unknown, value: string) => {
+			const t = String(value ?? '').trim();
+			if (!t) return;
+			if (!/^\d+\.\d+\.\d+\.\d+\/\d{1,2}$/.test(t)) throw new Error('示例：10.0.0.2/24');
+		},
+	};
+	const optionalV6Rule = {
+		validator: async (_: unknown, value: string) => {
+			const t = String(value ?? '').trim();
+			if (!t) return;
+			if (!/^[0-9a-fA-F:]+\/\d{1,3}$/.test(t) || t.includes('.')) throw new Error('示例：2100::100/64');
+		},
+	};
 
 	return (
 		<>
 			<PageStack>
-				<PageHeader title="设定网卡 IP" description="配置 WAN、LAN 及辅助网口的 IP 地址。" />
+				<PageHeader title="设置网口IP" description={SET_IP_PAGE_DESC} />
 
 				<Form
 					form={form}
@@ -244,17 +293,18 @@ export function SetIpPage() {
 					onFinish={async (values) => {
 						setSaving(true);
 						setError(null);
-						setResult([]);
 						try {
 							const { data } = await api.post<{ ok: boolean; logs?: string[]; error?: string }>('/apply', {
 								scope: 'all',
 								public_ip: values.public_ip,
+								public_ipv6: values.public_ipv6,
 								private_ip: values.private_ip,
+								private_ipv6: values.private_ipv6,
 							});
 							if (!data?.ok) throw new Error(data?.error || '配置失败');
-							setResult(Array.isArray(data.logs) ? data.logs.map((x) => String(x)) : []);
+							message.success('已保存并应用网卡 IP');
 							const { data: nextStatus } = await api.get<StatusResp>('/status');
-							setStatus(nextStatus);
+							hydrateFromStatus(nextStatus);
 						} catch (e) {
 							setError(e instanceof Error ? e.message : '配置失败');
 						} finally {
@@ -274,11 +324,11 @@ export function SetIpPage() {
 						<Card variant="list">
 							{!identityReady ? (
 								<Typography.Paragraph type="warning" style={{ margin: 0, padding: '12px 20px 0' }}>
-									尚未写入 WAN/LAN 身份，请先完成「初始化网卡」后再设定 IP（禁止按下标猜口）。
+									尚未写入 WAN/LAN 身份，请先完成「初始化网卡」后再设置 IP（禁止按下标猜口）。
 								</Typography.Paragraph>
 							) : status.net_init_ok ? null : (
 								<Typography.Paragraph type="warning" style={{ margin: 0, padding: '12px 20px 0' }}>
-									请先完成网卡初始化并确保 VBRAS 正常启动。
+									请先完成网卡初始化并确保数据面正常启动。
 								</Typography.Paragraph>
 							)}
 							<List
@@ -286,20 +336,40 @@ export function SetIpPage() {
 								className="app-settings-list"
 								dataSource={[
 									{
-										key: 'wan',
-										title: 'WAN 口',
+										key: 'wan4',
+										title: 'WAN IPv4',
 										description: `接口 ${wanIf}`,
 										name: 'public_ip' as const,
 										placeholder: '例如 10.0.0.2/24',
-										rule: wanCidrRule,
+										rule: optionalV4Rule,
+										disabled: !wanPci,
 									},
 									{
-										key: 'lan',
-										title: 'LAN 口',
+										key: 'wan6',
+										title: 'WAN IPv6',
+										description: `接口 ${wanIf}`,
+										name: 'public_ipv6' as const,
+										placeholder: '例如 2100::100/64',
+										rule: optionalV6Rule,
+										disabled: !wanPci,
+									},
+									{
+										key: 'lan4',
+										title: 'LAN IPv4',
 										description: `接口 ${lanIf}`,
 										name: 'private_ip' as const,
 										placeholder: '例如 192.168.1.1/24',
-										rule: lanCidrRule,
+										rule: optionalV4Rule,
+										disabled: !lanPci,
+									},
+									{
+										key: 'lan6',
+										title: 'LAN IPv6',
+										description: `接口 ${lanIf}`,
+										name: 'private_ipv6' as const,
+										placeholder: '例如 2100::1/64',
+										rule: optionalV6Rule,
+										disabled: !lanPci,
 									},
 								]}
 								renderItem={(item) => (
@@ -310,7 +380,7 @@ export function SetIpPage() {
 												<Input
 													className="app-settings-list-input"
 													placeholder={item.placeholder}
-													disabled={saving || (item.key === 'wan' ? !wanPci : !lanPci)}
+													disabled={saving || item.disabled}
 												/>
 											</Form.Item>
 										}
@@ -319,16 +389,11 @@ export function SetIpPage() {
 									</List.Item>
 								)}
 							/>
-							{error || result.length > 0 ? (
-								<div style={{ padding: '12px 20px 16px', borderTop: error || result.length > 0 ? '1px solid var(--app-border)' : undefined }}>
-									{error ? (
-										<Typography.Paragraph type="danger" style={{ marginTop: 0, marginBottom: result.length > 0 ? 12 : 0 }}>
-											{error}
-										</Typography.Paragraph>
-									) : null}
-									{result.length > 0 ? (
-										<pre className="app-code-block app-code-block-inset app-code-block-min">{result.join('\n')}</pre>
-									) : null}
+							{error ? (
+								<div style={{ padding: '12px 20px 16px', borderTop: '1px solid var(--app-border)' }}>
+									<Typography.Paragraph type="danger" style={{ margin: 0 }}>
+										{error}
+									</Typography.Paragraph>
 								</div>
 							) : null}
 						</Card>
@@ -365,23 +430,37 @@ export function SetIpPage() {
 										const label = `NIC#${c.idx}`;
 										const statusText = c.ifname ? (c.attached ? '已挂载' : '未挂载') : '未识别接口名';
 										const descParts = [`接口 ${c.ifname || '-'}`];
-										if (c.currentIp !== '-') descParts.push(`当前 ${c.currentIp}`);
+										if (c.currentIp !== '-') descParts.push(`IPv4 ${c.currentIp}`);
+										if (c.currentIpv6 !== '-') descParts.push(`IPv6 ${c.currentIpv6}`);
 										descParts.push(statusText);
 										return (
 											<List.Item
 												key={`${label}-${c.pci}`}
 												extra={
-													<Input
-														className="app-settings-list-input"
-														disabled={!c.attached || !c.ifname || extraSaving}
-														placeholder="例如 192.168.10.1/24"
-														value={c.ifname ? extraCidrByIfname[c.ifname] ?? '' : ''}
-														onChange={(e) => {
-															if (!c.ifname) return;
-															const v = e.target.value;
-															setExtraCidrByIfname((prev) => ({ ...prev, [c.ifname]: v }));
-														}}
-													/>
+													<Space direction="vertical" size={6} style={{ width: 280 }}>
+														<Input
+															className="app-settings-list-input"
+															disabled={!c.attached || !c.ifname || extraSaving}
+															placeholder="IPv4 例如 192.168.10.1/24"
+															value={c.ifname ? extraCidrByIfname[c.ifname] ?? '' : ''}
+															onChange={(e) => {
+																if (!c.ifname) return;
+																const v = e.target.value;
+																setExtraCidrByIfname((prev) => ({ ...prev, [c.ifname]: v }));
+															}}
+														/>
+														<Input
+															className="app-settings-list-input"
+															disabled={!c.attached || !c.ifname || extraSaving}
+															placeholder="IPv6 例如 2100::10/64"
+															value={c.ifname ? extraIpv6ByIfname[c.ifname] ?? '' : ''}
+															onChange={(e) => {
+																if (!c.ifname) return;
+																const v = e.target.value;
+																setExtraIpv6ByIfname((prev) => ({ ...prev, [c.ifname]: v }));
+															}}
+														/>
+													</Space>
 												}
 											>
 												<List.Item.Meta title={label} description={descParts.join(' · ')} />
@@ -389,18 +468,13 @@ export function SetIpPage() {
 										);
 									}}
 								/>
-								{(extraError || extraResult.length > 0) && (
+								{extraError ? (
 									<div style={{ padding: '12px 20px 16px', borderTop: '1px solid var(--app-border)' }}>
-										{extraError ? (
-											<Typography.Paragraph type="danger" style={{ marginTop: 0, marginBottom: extraResult.length > 0 ? 12 : 0 }}>
-												{extraError}
-											</Typography.Paragraph>
-										) : null}
-										{extraResult.length > 0 ? (
-											<pre className="app-code-block app-code-block-inset app-code-block-min">{extraResult.join('\n')}</pre>
-										) : null}
+										<Typography.Paragraph type="danger" style={{ margin: 0 }}>
+											{extraError}
+										</Typography.Paragraph>
 									</div>
-								)}
+								) : null}
 							</>
 						)}
 					</Card>
