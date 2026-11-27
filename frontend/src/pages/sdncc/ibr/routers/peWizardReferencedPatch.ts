@@ -191,6 +191,19 @@ const syncPublicRouteMeta = (
   return changed;
 };
 
+/** 按 destination + via + vrf 去重（保留首次出现；也清理现网已存在的重复条目） */
+export const dedupeIpv6Routes = (list: unknown[]): unknown[] => {
+  const seen = new Set<string>();
+  return list.filter((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+    const r = item as Record<string, unknown>;
+    const key = `${text(r.destination)}|${text(r.via)}|${text(r.vrf)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const patchPublicIpv6Routes = (
   cfg: Record<string, unknown>,
   formRoutes: Array<{ destination: string; via?: string }>,
@@ -215,7 +228,7 @@ const patchPublicIpv6Routes = (
     if (replaceDests.has(dest)) continue;
     kept.push(row);
   }
-  const next = [...kept, ...formRoutes];
+  const next = dedupeIpv6Routes([...kept, ...formRoutes]);
   const before = normalizeIpv6RouteList(existing);
   const after = normalizeIpv6RouteList(next);
   if (stableStringify(before) === stableStringify(after)) return false;
@@ -472,6 +485,50 @@ export const isHubLanIfNameLocked = (
   if (!n) return false;
   if (boundLanIfNames === null) return ifNameInSet(n, savedLanIfNames);
   return ifNameInSet(n, boundLanIfNames);
+};
+
+/** 现网配置 interfaces_* / subinterfaces_* 中已存在的口名 */
+const existingIfaceNames = (cfg: Record<string, unknown>): string[] => {
+  const out: string[] = [];
+  Object.keys(cfg).forEach((k) => {
+    if (!(k.startsWith('interfaces_') || k.startsWith('subinterfaces_'))) return;
+    const arr = cfg[k];
+    if (!Array.isArray(arr)) return;
+    arr.forEach((it) => {
+      const n = text((it as Record<string, unknown> | null)?.name);
+      if (n) out.push(n);
+    });
+  });
+  return out;
+};
+
+/**
+ * Hub 清单变更标签。
+ * 生效配置常被剥掉 inventory，只能用 pe.publicConfig 还原（只含主 WAN），其余 WAN 会被误判为“新增”。
+ * 回退模式下：仅当口在现网接口表里也不存在时才算新增；路由/地址变化已由前面的路由、接口合并检测，不再用签名重复报。
+ */
+export const hubInventoryChangeLabel = (
+  existing: Record<string, unknown>,
+  prevInv: HubInventory | null,
+  nextInv: HubInventory,
+  fromFallback: boolean,
+): string[] => {
+  if (!fromFallback && inventoryRouteSignature(prevInv) === inventoryRouteSignature(nextInv)) return [];
+  const known = fromFallback ? existingIfaceNames(existing) : [];
+  const wanKnown = (n: string) =>
+    (prevInv?.wan || []).some((w) => wanIfNamesMatch(w.ifName, n)) || known.some((k) => wanIfNamesMatch(k, n));
+  const lanKnown = (n: string, vrf: unknown) =>
+    (prevInv?.lan || []).some((l) => wanIfNamesMatch(l.ifName, n) && String(l.vrf) === String(vrf)) ||
+    known.some((k) => wanIfNamesMatch(k, n));
+  const newWan = nextInv.wan.filter((w) => !wanKnown(text(w.ifName))).map((w) => w.ifName);
+  const newLan = nextInv.lan
+    .filter((l) => !lanKnown(text(l.ifName), l.vrf))
+    .map((l) => `${l.ifName}(VRF ${l.vrf})`);
+  const out: string[] = [];
+  if (newWan.length) out.push(`新增 WAN 口 ${newWan.join('、')}`);
+  if (newLan.length) out.push(`新增 LAN 口 ${newLan.join('、')}`);
+  if (!out.length && !fromFallback) out.push('Hub WAN/LAN 清单');
+  return out;
 };
 
 /** 生效配置常被剥掉 inventory：用 pe.publicConfig / lanConfig 还原一份供 diff */
@@ -764,23 +821,12 @@ export function applyPeWizardReferencedChanges(
   }
 
   if (opts.isHubPe) {
-    const prevInv =
-      parseHubInventoryFromConfig(cfg) ||
-      opts.existingHubInventory ||
-      inventoryFromPeFallback(cfg);
+    const realInv = parseHubInventoryFromConfig(cfg) || opts.existingHubInventory || null;
+    const prevInv = realInv || inventoryFromPeFallback(cfg);
     const nextInv = buildHubInventoryFromPeWizardValues(values, opts.existingHubInventory ?? prevInv);
     attachHubInventoryToConfig(cfg, nextInv);
-    if (inventoryRouteSignature(prevInv) !== inventoryRouteSignature(nextInv)) {
-      const wanKeys = new Set((prevInv?.wan || []).map((w) => text(w.ifName)));
-      const lanKeys = new Set((prevInv?.lan || []).map((l) => `${text(l.ifName)}#${l.vrf}`));
-      const newWan = nextInv.wan.filter((w) => !wanKeys.has(text(w.ifName))).map((w) => w.ifName);
-      const newLan = nextInv.lan
-        .filter((l) => !lanKeys.has(`${text(l.ifName)}#${l.vrf}`))
-        .map((l) => `${l.ifName}(VRF ${l.vrf})`);
-      if (newWan.length) changedLabels.push(`新增 WAN 口 ${newWan.join('、')}`);
-      if (newLan.length) changedLabels.push(`新增 LAN 口 ${newLan.join('、')}`);
-      if (!newWan.length && !newLan.length) changedLabels.push('Hub WAN/LAN 清单');
-    }
+    const label = hubInventoryChangeLabel(existing, prevInv, nextInv, !realInv);
+    if (label.length) changedLabels.push(...label);
   }
 
   return { cfg, changedLabels: [...new Set(changedLabels)] };

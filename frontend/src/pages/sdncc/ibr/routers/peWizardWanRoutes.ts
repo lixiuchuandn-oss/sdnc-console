@@ -108,9 +108,13 @@ export function buildWanStaticRoutesFromRows(rows: WanRouteFormRow[]): {
     const dest6 = normalizePeWizardIpv6Cidr(row.ipv6Dest);
     if (dest6) {
       const via = String(row.ipv6Via ?? '').trim();
-      const route: { destination: string; via?: string } = { destination: dest6 };
-      if (via) route.via = via;
-      ipv6_route.push(route);
+      // 多 WAN 行可能填了同一条 IPv6 路由（IPv6 路由无 dev），去重避免 VR2 重复条目
+      const dup = ipv6_route.some((r) => r.destination === dest6 && (r.via || '') === via);
+      if (!dup) {
+        const route: { destination: string; via?: string } = { destination: dest6 };
+        if (via) route.via = via;
+        ipv6_route.push(route);
+      }
     }
   }
 

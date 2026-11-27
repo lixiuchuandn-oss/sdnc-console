@@ -67,7 +67,11 @@ import {
   shouldClearIpOnMissingIface,
   wanRowsForLockCheck,
 } from '../wizardLockRules';
-import { TUNNEL_REF_CONFIRM_LEAD } from '../roleWizardReferencedMerge';
+import {
+  TUNNEL_REF_CONFIRM_LEAD,
+  TUNNEL_REF_NOOP_TOAST,
+  TUNNEL_REF_OK_TOAST,
+} from '../roleWizardReferencedMerge';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -1615,10 +1619,7 @@ const PEWizard: React.FC = () => {
           return;
         }
         if (!patched.changedLabels.length) {
-          message.info(
-            `该 IBR 已被 SRv6 隧道引用，未检测到可下发的变更，已跳过设备下发。${refNamesPart}`,
-            8,
-          );
+          message.info(`${TUNNEL_REF_NOOP_TOAST}${refNamesPart ? ` ${refNamesPart}` : ''}`, 8);
           return;
         }
         cfg = patched.cfg;
@@ -1644,9 +1645,7 @@ const PEWizard: React.FC = () => {
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
-      message.success(
-        tunnelReferenced ? '该 IBR 已被隧道引用，配置已更新并下发。' : '配置已下发',
-      );
+      message.success(tunnelReferenced ? TUNNEL_REF_OK_TOAST : data?.msg || '配置已下发');
       try {
         skipEditFormOnNextDeviceReadRef.current = true;
         await fetchInterfaces(true);
@@ -1782,9 +1781,18 @@ const PEWizard: React.FC = () => {
                           onChange={(val) => autoFillHubWanRow(idx, String(val || ''), { force: true })}
                         />
                       </Form.Item>
-                      {isWanLocked(idx) ? (
-                        <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{wanLockTip}</div>
-                      ) : null}
+                      {/* 与 LAN 锁定提示一致：常驻节点 + 显式 key，避免与 {...field} 同 key 兄弟节点冲突导致 React 重复渲染 */}
+                      <div
+                        key={`${field.key}-wan-lock-tip`}
+                        style={{
+                          color: '#d46b08',
+                          fontSize: 12,
+                          margin: '-4px 0 8px 0',
+                          display: isWanLocked(idx) ? 'block' : 'none',
+                        }}
+                      >
+                        {wanLockTip}
+                      </div>
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv4']}

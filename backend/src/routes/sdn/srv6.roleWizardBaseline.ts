@@ -386,7 +386,16 @@ const mergeRoleRoutes = (
           return !roleDests.has(ipv6Dest(row));
         })
       : [];
-    baseline.ipv6_route = [...keep, ...fromIncoming];
+    // 去重：多 WAN 行同目的/同网关只保留一条（也清理历史重复）
+    const seen6 = new Set<string>();
+    baseline.ipv6_route = [...keep, ...fromIncoming].filter((r) => {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return true;
+      const row = r as Record<string, unknown>;
+      const key = `${ipv6Dest(row)}|${text(row.via)}|${text(row.vrf)}`;
+      if (seen6.has(key)) return false;
+      seen6.add(key);
+      return true;
+    });
   }
 };
 

@@ -54,7 +54,7 @@ const isPublicBgp = (b: Record<string, unknown>) =>
   b.vrf === undefined || b.vrf === null || String(b.vrf).trim() === '' || Number(b.vrf) === 0;
 
 export const tunnelRefLockTip = (tunnelNames: string[] | null | undefined) =>
-  `该字段已被隧道${
+  `置灰字段已被隧道${
     tunnelNames?.length ? `「${tunnelNames.join('、')}」` : ''
   }引用，如需修改请先删除相关隧道`;
 

@@ -734,9 +734,12 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
               />
             </Form.Item>
-            {fingerprintLocked ? (
-              <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{tunnelRefLockTip(tunnelRefNames)}</div>
-            ) : null}
+            <div
+              key="ce-wan-lock-tip"
+              style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0', display: fingerprintLocked ? 'block' : 'none' }}
+            >
+              {fingerprintLocked ? tunnelRefLockTip(tunnelRefNames) : ''}
+            </div>
             <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码" preserve>
               <Input placeholder="例如 200.1.1.2/24" disabled={fingerprintLocked} />
             </Form.Item>
@@ -785,6 +788,13 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
               />
             </Form.Item>
+            {/* 常驻节点 + display 切换：异步加载引用信息时不改变兄弟节点结构，避免重复渲染 */}
+            <div
+              key="ce-lan-lock-tip"
+              style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0', display: fingerprintLocked ? 'block' : 'none' }}
+            >
+              {fingerprintLocked ? tunnelRefLockTip(tunnelRefNames) : ''}
+            </div>
             <Form.Item name="lanIpv4" label="LAN 侧 IPv4 地址/掩码" preserve>
               <Input placeholder="例如 130.1.1.1/24" disabled={fingerprintLocked} />
             </Form.Item>

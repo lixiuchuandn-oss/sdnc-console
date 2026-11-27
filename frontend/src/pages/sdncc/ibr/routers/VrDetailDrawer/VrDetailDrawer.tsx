@@ -15,7 +15,7 @@ import {
   Tabs,
   Typography,
 } from 'antd';
-import { SyncOutlined, LinkOutlined } from '@ant-design/icons';
+import { SyncOutlined, LinkOutlined, CopyOutlined } from '@ant-design/icons';
 import { apiPost } from '../../../../../services/api';
 import {
   fetchVrCacheMerged,
@@ -235,8 +235,38 @@ const DeviceJsonViewer: React.FC<{ loading?: boolean; text: string }> = memo(
         </div>
       );
     }
+    const handleCopy = async () => {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // 非 HTTPS（如 http://10.x）下 clipboard API 不可用，退回 execCommand
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (!ok) throw new Error('copy failed');
+        }
+        message.success('已复制到剪贴板');
+      } catch {
+        message.error('复制失败，请手动选择文本复制');
+      }
+    };
     return (
-      <div className="vr-detail-json-viewport">
+      <div className="vr-detail-json-viewport" style={{ position: 'relative' }}>
+        <Button
+          size="small"
+          icon={<CopyOutlined />}
+          onClick={() => void handleCopy()}
+          disabled={!text}
+          style={{ position: 'absolute', top: 8, right: 20, zIndex: 2 }}
+        >
+          复制
+        </Button>
         <div className="vr-detail-json-scroll">
           <div className="vr-detail-json-inner">
             <div className="vr-detail-json-rows">
