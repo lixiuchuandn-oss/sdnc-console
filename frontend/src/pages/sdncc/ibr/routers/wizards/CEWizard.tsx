@@ -29,6 +29,7 @@ import {
   TUNNEL_REF_OK_TOAST,
   tunnelRefLockTip,
 } from '../roleWizardReferencedMerge';
+import { lockedIpv4Fill, normalizeIfaceNameLoose, shouldClearIpOnMissingIface } from '../wizardLockRules';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -182,11 +183,7 @@ const CEWizard: React.FC = () => {
     };
   }, [uuid]);
 
-  const normalizeIfaceName = (s: string) =>
-    String(s || '')
-      .trim()
-      .replace(/\s+/g, ' ')
-      .toLowerCase();
+  const normalizeIfaceName = normalizeIfaceNameLoose;
 
   const ifaceRowMatchesName = (it: any, ifaceName: string) => {
     const name = normalizeIfaceName(ifaceName);
@@ -234,29 +231,36 @@ const CEWizard: React.FC = () => {
     const obj = findInterfaceInDevice(vr3Info, ifaceName);
     if (!obj) {
       if (force) {
+        // 隧道引用锁定时 IPv4 是身份字段：设备上找不到口也不清空
+        const clearV4 = shouldClearIpOnMissingIface(force, fingerprintLocked);
         if (kind === 'wan') {
-          form.setFieldsValue({ wanIpv4: undefined, wanIpv6: undefined });
+          form.setFieldsValue(clearV4 ? { wanIpv4: undefined, wanIpv6: undefined } : { wanIpv6: undefined });
         } else {
-          form.setFieldsValue({ lanIpv4: undefined, lanIpv6: undefined });
+          form.setFieldsValue(clearV4 ? { lanIpv4: undefined, lanIpv6: undefined } : { lanIpv6: undefined });
         }
       }
       return;
     }
     const v4 = String(pickIfaceIpv4(obj) || '').trim();
     const v6 = String(pickIfaceIpv6(obj) || '').trim();
+    /** 锁定时：仅在字段为空时用设备主 IPv4 回填，不覆盖已有值 */
+    const lockedV4Fill = (field: 'wanIpv4' | 'lanIpv4') => {
+      const fill = lockedIpv4Fill(form.getFieldValue(field), v4);
+      return fill ? { [field]: fill } : {};
+    };
 
     if (kind === 'wan') {
       const touchedV4 = form.isFieldTouched('wanIpv4');
       const touchedV6 = form.isFieldTouched('wanIpv6');
       form.setFieldsValue({
-        ...(fingerprintLocked ? {} : force || !touchedV4 ? { wanIpv4: v4 || undefined } : {}),
+        ...(fingerprintLocked ? lockedV4Fill('wanIpv4') : force || !touchedV4 ? { wanIpv4: v4 || undefined } : {}),
         ...(force || !touchedV6 ? { wanIpv6: v6 || undefined } : {}),
       });
     } else {
       const touchedV4 = form.isFieldTouched('lanIpv4');
       const touchedV6 = form.isFieldTouched('lanIpv6');
       form.setFieldsValue({
-        ...(fingerprintLocked ? {} : force || !touchedV4 ? { lanIpv4: v4 || undefined } : {}),
+        ...(fingerprintLocked ? lockedV4Fill('lanIpv4') : force || !touchedV4 ? { lanIpv4: v4 || undefined } : {}),
         ...(force || !touchedV6 ? { lanIpv6: v6 || undefined } : {}),
       });
     }
@@ -716,6 +720,7 @@ const CEWizard: React.FC = () => {
               <Select
                 placeholder="请选择接口"
                 showSearch
+                disabled={fingerprintLocked}
                 loading={ifaceLoading}
                 options={ifaceOptions.map((n) => ({
                   value: n,

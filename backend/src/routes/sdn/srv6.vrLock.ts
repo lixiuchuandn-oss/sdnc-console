@@ -126,6 +126,17 @@ const lanConfigIpv4Host = (cfg: Record<string, unknown>, ifName: string): string
   return '';
 };
 
+/** CE 公网 WAN 口名：ce.publicConfig.wanName / wanDev */
+export const ceWanNameFromConfig = (cfg: Record<string, unknown> | null | undefined): string => {
+  const ce =
+    cfg?.ce && typeof cfg.ce === 'object' && !Array.isArray(cfg.ce) ? (cfg.ce as Record<string, unknown>) : {};
+  const pub =
+    ce.publicConfig && typeof ce.publicConfig === 'object' && !Array.isArray(ce.publicConfig)
+      ? (ce.publicConfig as Record<string, unknown>)
+      : {};
+  return String(pub.wanName ?? pub.wanDev ?? ce.wanDev ?? '').trim();
+};
+
 /** Hub：已绑定 LAN 的口名 / 主 IPv4 相对提交配置的差异（不锁定未绑定的额外 LAN） */
 export const hubBoundLanIdentityDiffs = (
   nextCfg: Record<string, unknown>,
@@ -175,6 +186,12 @@ export const assertSrv6VrConfigUpsertAllowed = async (
 
   const repo = AppDataSource.getRepository(SRv6Tunnel);
   const conflicts: string[] = [];
+  // CE：WAN 口与其 IPv4 共同构成隧道身份，口名变更也拦（对比平台已保存配置）
+  const savedRecord = await AppDataSource.getRepository(VRConfig).findOne({ where: { uuid: vrUuid } });
+  const savedCfg = parseConfig(savedRecord?.config_json);
+  const prevCeWan = ceWanNameFromConfig(savedCfg);
+  const nextCeWan = ceWanNameFromConfig(nextCfg);
+  const ceWanChanged = Boolean(prevCeWan) && !ifNamesMatch(prevCeWan, nextCeWan);
 
   for (const ref of refs) {
     const tunnel = await repo.findOne({ where: { id: ref.tunnelId } });
@@ -189,6 +206,11 @@ export const assertSrv6VrConfigUpsertAllowed = async (
       }
     } else if (nextRole && nextRole !== 'CE') {
       conflicts.push(`隧道「${tunnel.name}」（${slotDisplay(ref.slot)}）：角色应为 CE，当前提交为 ${nextRole}`);
+      continue;
+    } else if (ceWanChanged) {
+      conflicts.push(
+        `隧道「${tunnel.name}」（${slotDisplay(ref.slot)}）：CE WAN 接口不可修改（${prevCeWan} → ${nextCeWan || '-'}）`,
+      );
       continue;
     }
     const expected = getStoredFingerprintForSlot(tunnel, ref.slot);

@@ -61,6 +61,12 @@ import {
   lockedWanFieldChanges,
   lockedWanIfNamesFromConfig,
 } from '../peWizardReferencedPatch';
+import {
+  isHubPublicAsnLocked,
+  isLanVrfBgpLocked,
+  shouldClearIpOnMissingIface,
+  wanRowsForLockCheck,
+} from '../wizardLockRules';
 import { TUNNEL_REF_CONFIRM_LEAD } from '../roleWizardReferencedMerge';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
@@ -460,12 +466,15 @@ const PEWizard: React.FC = () => {
     : '';
   /** LAN 第 idx 行的 VRF 已在现网存在且被隧道引用 → BGP 关键字段只读 */
   const isLanBgpLocked = (idx: number): boolean => {
-    if (!tunnelRefNames) return false;
-    if (!isHubPe) return true;
     const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
-    const vrf = rows[idx]?.vrf;
-    return vrf != null && String(vrf).trim() !== '' && lockedLanVrfs.has(String(vrf).trim());
+    // 同 VRF 共用 BGP 参数：VRF 被隧道引用即锁 BGP 字段；LAN 口/IP 另由 isLanIfLocked 按绑定判断
+    return isLanVrfBgpLocked(Boolean(tunnelRefNames), isHubPe, rows[idx]?.vrf, lockedLanVrfs);
   };
+  const wanLockTip = tunnelRefNames
+    ? `WAN 口与 IPv6 / ASN 已被隧道${
+        tunnelRefNames.length ? `「${tunnelRefNames.join('、')}」` : ''
+      }引用，如需修改请先删除隧道`
+    : '';
   const spokeTunnelLocked = Boolean(tunnelRefNames) && !isHubPe;
   /** Hub：仅隧道已绑定的 LAN 口锁 ifName/主 IPv4；未绑定的额外 LAN 仍可改 */
   const isLanIfLocked = (idx: number): boolean => {
@@ -594,7 +603,8 @@ const PEWizard: React.FC = () => {
     const obj =
       findInterfaceInDevice(vr3Info, ifaceName) || findInterfaceInDevice(csmctlCfg, ifaceName);
     if (!obj) {
-      if (force) form.setFieldsValue({ wanIpv4: undefined, wanIpv6: undefined });
+      // 隧道锁定时设备回读里找不到口，不清空已保存地址
+      if (shouldClearIpOnMissingIface(force, spokeTunnelLocked)) form.setFieldsValue({ wanIpv4: undefined, wanIpv6: undefined });
       return;
     }
     const v4 = String(pickIfaceIpv4(obj) || '').trim();
@@ -618,7 +628,8 @@ const PEWizard: React.FC = () => {
       const v6 = String(pickIfaceIpv6(obj) || '').trim();
       if (force || !row.ipv4) row.ipv4 = v4 || undefined;
       if (force || !row.ipv6) row.ipv6 = v6 || undefined;
-    } else if (force) {
+    } else if (shouldClearIpOnMissingIface(force, isWanLocked(fieldIndex))) {
+      // 隧道锁定的 WAN 行：设备回读找不到口时不清空已保存地址
       row.ipv4 = undefined;
       row.ipv6 = undefined;
     }
@@ -1577,7 +1588,11 @@ const PEWizard: React.FC = () => {
           ...lockedLanFieldChanges(base, values.lanConfigs, {
             boundLanIfNames: boundLanForDispatch,
           }),
-          ...lockedWanFieldChanges(base, values.hubWanInventory),
+          // Spoke 只有单 WAN（wanDev），没有 hubWanInventory；否则会误报“WAN 不可删除”
+          ...lockedWanFieldChanges(
+            base,
+            wanRowsForLockCheck(isHubPe, values.hubWanInventory, values.wanDev) as any,
+          ),
         ];
         if (lockedChanges.length) {
           message.error(
@@ -1687,8 +1702,11 @@ const PEWizard: React.FC = () => {
                 Hub 公网 BGP（进程级 · bgp[0]）
               </div>
               <Form.Item name="bgpAsn" label="ASN" rules={[{ required: true, message: '请输入 BGP ASN' }]}>
-                <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
+                <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" disabled={isHubPublicAsnLocked(Boolean(tunnelRefNames))} />
               </Form.Item>
+              {isHubPublicAsnLocked(Boolean(tunnelRefNames)) ? (
+                <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{wanLockTip}</div>
+              ) : null}
               <Form.Item name="bgpRouterId" label="Router-ID" rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
                 <Input
                   placeholder="例如 200.1.1.2"
@@ -1764,6 +1782,9 @@ const PEWizard: React.FC = () => {
                           onChange={(val) => autoFillHubWanRow(idx, String(val || ''), { force: true })}
                         />
                       </Form.Item>
+                      {isWanLocked(idx) ? (
+                        <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{wanLockTip}</div>
+                      ) : null}
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv4']}
@@ -1906,6 +1927,9 @@ const PEWizard: React.FC = () => {
               }
             />
           </Form.Item>
+          {spokeTunnelLocked ? (
+            <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{wanLockTip}</div>
+          ) : null}
           <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码">
             <Input placeholder="例如 200.1.1.2/24" />
           </Form.Item>
