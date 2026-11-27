@@ -49,6 +49,7 @@ import {
 	type IpsecTunnelConfig,
 } from '../../services/forwarding/ipsecConfig.js';
 import { getStructuredAgentConfig } from '../../services/forwarding/agentConfigParse.js';
+import { getSrv6Counters } from '../../services/forwarding/srv6Counters.js';
 import {
 	addIpv6Route,
 	deleteIpv6Route,
@@ -550,6 +551,17 @@ export function createForwardingRouter(): Router {
 	r.get('/routing-policy', async (_req, res) => {
 		try {
 			const out = await getRoutingPolicy(paths());
+			res.json({ ...tracePayload(res), ...out });
+		} catch (e) {
+			res.status(500).json({ ...tracePayload(res), error: e instanceof Error ? e.message : String(e) });
+		}
+	});
+
+	/** SRv6 localsid Good/Bad 计数 + policy segment（SDNC 隧道运行态：docs/ibr-srv6-runtime-topology.md） */
+	r.get('/srv6/counters', async (req, res) => {
+		try {
+			const includeRaw = String(req.query.raw ?? '') === '1';
+			const out = await getSrv6Counters(paths(), { includeRaw });
 			res.json({ ...tracePayload(res), ...out });
 		} catch (e) {
 			res.status(500).json({ ...tracePayload(res), error: e instanceof Error ? e.message : String(e) });

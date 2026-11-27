@@ -13,6 +13,7 @@
 | [srv6-baseline-recompute.md](./srv6-baseline-recompute.md) | SRv6 baseline / recompute |
 | [srv6-config-ledger-and-drift.md](./srv6-config-ledger-and-drift.md) | **SRv6 账本 / 叠加 / 漂移**（弹窗 vs 黄标、语义比较、对账修复边界） |
 | [srv6-hub-pe-spec.md](./srv6-hub-pe-spec.md) | SRv6 Hub PE 约束 |
+| [ibr-srv6-runtime-topology.md](./ibr-srv6-runtime-topology.md) | **SRv6 隧道运行态展示**（localsid 双向流量、拓扑叠加口径、local-web 计数接口；方案已定待开发） |
 | [srv6-release-notes.md](./srv6-release-notes.md) | SRv6 发版说明 |
 | [srv6-testcases.md](./srv6-testcases.md) | SRv6 冒烟清单 |
 | [sdnc-tower-integration-api.md](./sdnc-tower-integration-api.md) | Tower ↔ SDNC 联部署（可选；独立 SDNC 可忽略） |

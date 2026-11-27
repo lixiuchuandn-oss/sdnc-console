@@ -119,60 +119,64 @@ add_srv6_config() {
 
 
 collect_srv6_data() {
-	local name
-    local vpn
-    local localsid
-    local seglist       # seglist
-    local ce_data  ce_array     # 格式: "router1,router2"
-	local BSID
-	local policy
-	local content
-	local pool_id
-	local vm_id
-	local index=0
-	
+	local name vpn localsid seglist ce_data BSID pool_id vm_id
+	local index=0 ls_raw pol_raw steer_raw ls_lines pol_lines localsids_json
 
 	local if=$(ip route | grep "default" | awk '{print $5}')
-	name=$(ip addr show $if | grep "inet " |grep -v "inet6" | awk '{print $2}' | awk -F/ '{print $1}')
-	vpn=$(vctl show sr localsids | grep "Table:" | tail -n 1 | awk '{print $2}')
-	localsid=$(vctl show sr localsids | grep "Address:"| tail -n 1| awk '{print $2}'|awk -F/ '{print $1}')
+	name=$(ip addr show $if | grep "inet " |grep -v "inet6" | awk '{print $2}' | awk -F/ '{print $1}' | tr -d '\r')
 	pool_id=$(jq -r .pool_id < "$VR_CONF")
 	vm_id=$(jq -r .vm_id < "$VR_CONF")
 
+	ls_raw=$(vctl show sr localsids | tr -d '\r')
+	pol_raw=$(vctl show sr policies | tr -d '\r')
+	steer_raw=$(vctl show sr steering-policies | tr -d '\r')
 
-	content=$(vctl show sr policies)
-	content=$(echo "$content" | sed '/^SR policies:/d')
+	# 兼容字段（CSMCTL Srv6.localsid / vpn 为单值）：保持原口径取最后一条
+	vpn=$(echo "$ls_raw" | grep "Table:" | tail -n 1 | awk '{print $2}')
+	localsid=$(echo "$ls_raw" | grep "Address:" | tail -n 1 | awk '{print $2}' | awk -F/ '{print $1}')
 
-	while [ -n "$content" ]; do
-		policy=$(echo "$content" | head -n 7)
-		if [ -z "$policy" ]; then
-			break
-		fi
-		BSID=$(echo "$policy" | grep "BSID:" | awk '{print $3}')
-		seglist=$(echo "$policy" | grep "weight:"| awk '{print $3}'|sed 's/,$//')
-		ce_array=$(vctl show sr steering-policies | grep "$BSID" | awk '{print $2}')
-		ce_data=""
-		for ce in $ce_array; do
-			if [ -z "$ce_data" ]; then
-    			ce_data="$ce"
-			else
-    			ce_data+=",$ce"
-			fi
-		done
-		
-		name=$(echo "$name" | tr -d '\r')
-		vpn=$(echo "$vpn" | tr -d '\r')
-		localsid=$(echo "$localsid" | tr -d '\r')
-		BSID=$(echo "$BSID" | tr -d '\r')
-		seglist=$(echo "$seglist" | tr -d '\r')
-		ce_data=$(echo "$ce_data" | tr -d '\r')
+	# 全量 localsid + Good/Bad 计数（修复：不再只取最后一条）
+	# 每行：address|table|behavior|good_pkts|good_bytes|bad_pkts|bad_bytes
+	ls_lines=$(echo "$ls_raw" | awk '
+		function emit() { if (a != "") print a "|" t "|" b "|" gp "|" gb "|" bp "|" bb }
+		/Address:/      { emit(); a=$2; sub(/\/.*/, "", a); t=""; b=""; gp=0; gb=0; bp=0; bb=0 }
+		/Behavior:/     { b=$2 }
+		/Table:/        { t=$2 }
+		/Good traffic:/ { gsub(/[][]/, ""); gp=$3; gb=$6 }
+		/Bad traffic:/  { gsub(/[][]/, ""); bp=$3; bb=$6 }
+		END { emit() }')
+
+	# policy 按 BSID 分块解析（修复：不再按固定 7 行切）
+	# 每行：bsid|seg1,seg2,...
+	pol_lines=$(echo "$pol_raw" | awk '
+		function emit() { if (bs != "") print bs "|" segs }
+		/BSID:/  { emit(); bs=$NF; segs="" }
+		/weight:/ { s=$0; sub(/.*</, "", s); sub(/>.*/, "", s); gsub(/[^0-9A-Fa-f:.,\/]/, "", s); gsub(/,+/, ",", s); sub(/^,/, "", s); sub(/,$/, "", s);
+		            if (s != "") segs = (segs == "" ? s : segs "," s) }
+		END { emit() }')
+
+	while IFS='|' read -r BSID seglist; do
+		[ -z "$BSID" ] && continue
+		ce_data=$(echo "$steer_raw" | grep -F "$BSID" | awk '{print $2}' | paste -sd, -)
 		add_srv6_config "$CONF_DIR/conf.json" "$name" "$vpn" "$localsid" "$BSID" "$seglist" "$ce_data" "$pool_id" "$vm_id" > "$CONF_DIR/tmp_srv6.json" && mv "$CONF_DIR/tmp_srv6.json" "$CONF_DIR/conf.json"
-		content=$(echo "$content" | sed '1,7d')
 		((index++))
-	done
+	done <<< "$pol_lines"
+
 	if [ "$index" -eq "0" ]; then
-		add_srv6_config "$CONF_DIR/conf.json" "$name" "$vpn" "$localsid" "$BSID" "$seglist" "$ce_data" "$pool_id" "$vm_id" > "$CONF_DIR/tmp_srv6.json" && mv "$CONF_DIR/tmp_srv6.json" "$CONF_DIR/conf.json"
-	fi 
+		add_srv6_config "$CONF_DIR/conf.json" "$name" "$vpn" "$localsid" "" "" "" "$pool_id" "$vm_id" > "$CONF_DIR/tmp_srv6.json" && mv "$CONF_DIR/tmp_srv6.json" "$CONF_DIR/conf.json"
+	fi
+
+	# 新增 srv6.localsids（数组，含累计计数）；CSMCTL 旧版本未建模时会忽略该字段
+	localsids_json=$(echo "$ls_lines" | jq -R -s -c '
+		split("\n") | map(select(length > 0) | split("|") | {
+			address: .[0], table: .[1], behavior: .[2],
+			good: { packets: ((.[3] // "0") | tonumber), bytes: ((.[4] // "0") | tonumber) },
+			bad:  { packets: ((.[5] // "0") | tonumber), bytes: ((.[6] // "0") | tonumber) }
+		})' 2>/dev/null)
+	[ -z "$localsids_json" ] && localsids_json='[]'
+	jq --argjson ls "$localsids_json" --arg ts "$(date +%s)" \
+		'.srv6.localsids = $ls | .srv6.localsidsSampledAt = ($ts | tonumber)' \
+		"$CONF_DIR/conf.json" > "$CONF_DIR/tmp_srv6.json" && mv "$CONF_DIR/tmp_srv6.json" "$CONF_DIR/conf.json"
 }
 #	{
 #		"interfaces": [
@@ -291,6 +295,12 @@ collect_interfaces_data() {
     local interface_stats_json
     interface_stats_json=$(vctl show interface | lua /rhos/etc/agent/tools/lua/interface-fmt.lua 2>/dev/null)
     
+    # 接口计数上次样本（用于差分算速率）
+    local IF_PREV_FILE=${IF_PREV_FILE:-/tmp/.netjson_if_counters.prev}
+    local now_ts=$(date +%s)
+    local prev_new="${IF_PREV_FILE}.new"
+    : > "$prev_new"
+
     # 获取所有接口的名字
     if_list=$(vctl show tap-inject | awk -F "->" '{print $1}' | awk '{$1=$1};1')
     for if in $if_list; do
@@ -319,32 +329,31 @@ collect_interfaces_data() {
             # name可能是 "GigabitEthernet 0/3/0"，需要匹配 "GigabitEthernet0/3/0"
             local name_no_space=$(echo "$name" | tr -d ' ')
             local counters=$(echo "$interface_stats_json" | jq -r --arg ifname1 "$name" --arg ifname2 "$name_no_space" '.[] | select(.name == $ifname1 or .name == $ifname2) | .counters // {}')
-            
+
             if [ -n "$counters" ] && [ "$counters" != "{}" ] && [ "$counters" != "null" ]; then
                 local rx_packets=$(echo "$counters" | jq -r '.["rx packets"] // 0')
                 local rx_bytes=$(echo "$counters" | jq -r '.["rx bytes"] // 0')
                 local tx_packets=$(echo "$counters" | jq -r '.["tx packets"] // 0')
                 local tx_bytes=$(echo "$counters" | jq -r '.["tx bytes"] // 0')
-                
-                # 计算速率（除以INTERVAL），使用awk进行浮点数计算
-                # 即使值为0也计算速率，确保数据完整性
-                if [ -n "$rx_packets" ] && [ "$rx_packets" != "null" ]; then
-                    rx_packets_rate=$(awk "BEGIN {printf \"%.2f\", $rx_packets / $INTERVAL}" 2>/dev/null || echo "0")
-                fi
-                if [ -n "$rx_bytes" ] && [ "$rx_bytes" != "null" ]; then
-                    rx_bytes_rate=$(awk "BEGIN {printf \"%.2f\", $rx_bytes / $INTERVAL}" 2>/dev/null || echo "0")
-                fi
-                if [ -n "$tx_packets" ] && [ "$tx_packets" != "null" ]; then
-                    tx_packets_rate=$(awk "BEGIN {printf \"%.2f\", $tx_packets / $INTERVAL}" 2>/dev/null || echo "0")
-                fi
-                if [ -n "$tx_bytes" ] && [ "$tx_bytes" != "null" ]; then
-                    tx_bytes_rate=$(awk "BEGIN {printf \"%.2f\", $tx_bytes / $INTERVAL}" 2>/dev/null || echo "0")
+                echo "${name_no_space}|${now_ts}|${rx_packets}|${rx_bytes}|${tx_packets}|${tx_bytes}" >> "$prev_new"
+
+                # 速率 = Δcounter / Δt（修复：原为累计值 / INTERVAL）；Bps 字段按 bit/s 输出
+                # 无上次样本、Δt<=0 或计数回退（重启/clear）时本次不输出速率
+                local prev_line=$(awk -F'|' -v n="$name_no_space" '$1 == n { print; exit }' "$IF_PREV_FILE" 2>/dev/null)
+                if [ -n "$prev_line" ]; then
+                    local rates
+                    rates=$(echo "$prev_line" | awk -F'|' -v now="$now_ts" -v rp="$rx_packets" -v rb="$rx_bytes" -v tp="$tx_packets" -v tb="$tx_bytes" '{
+                        dt = now - $2
+                        if (dt <= 0 || rp < $3 || rb < $4 || tp < $5 || tb < $6) exit 1
+                        printf "%.2f %.2f %.2f %.2f", (rp - $3) / dt, (rb - $4) * 8 / dt, (tp - $5) / dt, (tb - $6) * 8 / dt
+                    }') && read -r rx_packets_rate rx_bytes_rate tx_packets_rate tx_bytes_rate <<< "$rates"
                 fi
             fi
         fi
 
         add_interfaces_config "$CONF_DIR/conf.json" "$name" "$vlan" "$vrf" "$ipv4" "$ipv6" "$status" "$rx_packets_rate" "$rx_bytes_rate" "$tx_packets_rate" "$tx_bytes_rate"
     done
+    mv -f "$prev_new" "$IF_PREV_FILE"
 }
 #	{
 #		"subinterfaces": [
