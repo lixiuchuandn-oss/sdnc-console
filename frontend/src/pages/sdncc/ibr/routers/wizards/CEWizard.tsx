@@ -12,6 +12,7 @@ import {
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { collectIfaceNamesForSelect, looksLikeIfaceName, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
+import { pickIfaceIpv4FromDevice, pickPrimaryIpv4Cidr } from '../vrIpv4Utils';
 import { pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 import {
   handleWizardStepsChange,
@@ -20,6 +21,14 @@ import {
   warnFormValidationFailure,
 } from '../vrWizardFormUtils';
 import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
+import {
+  applyCeWizardReferencedChanges,
+  formatTunnelRefBlockedMessage,
+  TUNNEL_REF_CONFIRM_LEAD,
+  TUNNEL_REF_NOOP_TOAST,
+  TUNNEL_REF_OK_TOAST,
+  tunnelRefLockTip,
+} from '../roleWizardReferencedMerge';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -91,7 +100,11 @@ function deviceStaticIfRoleSet(
   roleValue: unknown,
 ): string | undefined {
   if (!roleText(roleValue)) return undefined;
-  return roleText(iface?.[key]) || undefined;
+  const raw = roleText(iface?.[key]) || undefined;
+  if (!raw) return undefined;
+  // IPv4：口上可能叠 VRRP VIP，向导/回读只展示主地址
+  if (key === 'ipv4_static') return pickPrimaryIpv4Cidr(raw) || undefined;
+  return raw;
 }
 
 /**
@@ -145,8 +158,29 @@ const CEWizard: React.FC = () => {
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  const [tunnelRefNames, setTunnelRefNames] = useState<string[] | null>(null);
+  const fingerprintLocked = Boolean(tunnelRefNames);
   const savedBgpRouterIdRef = useRef(false);
   const editedBgpRouterIdRef = useRef(false);
+
+  useEffect(() => {
+    if (!uuid) return;
+    let alive = true;
+    fetchSrv6VrReferences(uuid)
+      .then((refs: any) => {
+        if (!alive) return;
+        if (refs?.count && refs.count > 0) {
+          const names = Array.from(
+            new Set((refs.refs || []).map((r: any) => r?.tunnelName).filter(Boolean)),
+          ) as string[];
+          setTunnelRefNames(names);
+        } else setTunnelRefNames(null);
+      })
+      .catch(() => alive && setTunnelRefNames(null));
+    return () => {
+      alive = false;
+    };
+  }, [uuid]);
 
   const normalizeIfaceName = (s: string) =>
     String(s || '')
@@ -187,18 +221,8 @@ const CEWizard: React.FC = () => {
     return scanBuckets(dev);
   };
 
-  const pickIfaceIpv4 = (iface: any) =>
-    iface?.ipv4_static ??
-    iface?.ipv4Static ??
-    iface?.ipv4 ??
-    iface?.ipv4_address ??
-    iface?.ipv4Address ??
-    iface?.ip_address ??
-    iface?.ipAddress ??
-    iface?.ip ??
-    iface?.address ??
-    '';
-  /** IPv6 字段回读：过滤 fe80:: link-local 地址 */
+  /** IPv4：多地址（主地址+VRRP VIP）只取第一条；IPv6：过滤 fe80:: */
+  const pickIfaceIpv4 = pickIfaceIpv4FromDevice;
   const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
 
   /**
@@ -225,14 +249,14 @@ const CEWizard: React.FC = () => {
       const touchedV4 = form.isFieldTouched('wanIpv4');
       const touchedV6 = form.isFieldTouched('wanIpv6');
       form.setFieldsValue({
-        ...(force || !touchedV4 ? { wanIpv4: v4 || undefined } : {}),
+        ...(fingerprintLocked ? {} : force || !touchedV4 ? { wanIpv4: v4 || undefined } : {}),
         ...(force || !touchedV6 ? { wanIpv6: v6 || undefined } : {}),
       });
     } else {
       const touchedV4 = form.isFieldTouched('lanIpv4');
       const touchedV6 = form.isFieldTouched('lanIpv6');
       form.setFieldsValue({
-        ...(force || !touchedV4 ? { lanIpv4: v4 || undefined } : {}),
+        ...(fingerprintLocked ? {} : force || !touchedV4 ? { lanIpv4: v4 || undefined } : {}),
         ...(force || !touchedV6 ? { lanIpv6: v6 || undefined } : {}),
       });
     }
@@ -333,6 +357,10 @@ const CEWizard: React.FC = () => {
         form.setFieldsValue({
           lanName: firstLan.lanName,
           wanName: pcfg.wanName || pcfg.wanDev || (cfg?.ce as any)?.wanDev,
+          wanIpv4: pickPrimaryIpv4Cidr(pcfg.wanIpv4) || undefined,
+          wanIpv6: pcfg.wanIpv6 || undefined,
+          lanIpv4: pickPrimaryIpv4Cidr(firstLan.lanIpv4) || undefined,
+          lanIpv6: firstLan.lanIpv6 || undefined,
           bgpAsn: pbg.asn ?? bgpTop?.asn,
           bgpRouterId: savedRouterId || undefined,
         });
@@ -431,7 +459,7 @@ const CEWizard: React.FC = () => {
 
     if (v?.wanName) {
       const item: any = {};
-      const ipv4Wan = String(v?.wanIpv4 || '').trim();
+      const ipv4Wan = pickPrimaryIpv4Cidr(v?.wanIpv4);
       if (ipv4Wan) item.ipv4_static = ipv4Wan;
       if (v?.wanIpv6) item.ipv6_static = String(v.wanIpv6).trim();
       mergeIface(v.wanName, item);
@@ -439,7 +467,8 @@ const CEWizard: React.FC = () => {
 
     if (v?.lanName) {
       const item: any = {};
-      if (v?.lanIpv4) item.ipv4_static = String(v.lanIpv4).trim();
+      const ipv4Lan = pickPrimaryIpv4Cidr(v?.lanIpv4);
+      if (ipv4Lan) item.ipv4_static = ipv4Lan;
       if (v?.lanIpv6) item.ipv6_static = String(v.lanIpv6).trim();
       mergeIface(v.lanName, item);
     }
@@ -474,8 +503,8 @@ const CEWizard: React.FC = () => {
 
     if (v?.bgpAsn || v?.bgpRouterId) {
       const bgpArr: any[] = [];
-      const wanCidr = String(v?.wanIpv4 || '').trim();
-      const lanCidr = String(v?.lanIpv4 || '').trim();
+      const wanCidr = pickPrimaryIpv4Cidr(v?.wanIpv4);
+      const lanCidr = pickPrimaryIpv4Cidr(v?.lanIpv4);
       const nets: string[] = [];
       const nwWan = ipv4NetworkFromCidr(wanCidr);
       const nwLan = ipv4NetworkFromCidr(lanCidr);
@@ -500,12 +529,14 @@ const CEWizard: React.FC = () => {
     }
 
     cfg.role = 'CE';
+    const wanIpv4Out = pickPrimaryIpv4Cidr(v?.wanIpv4) || undefined;
+    const lanIpv4Out = pickPrimaryIpv4Cidr(v?.lanIpv4) || undefined;
     const wanIpv6Out = String(v?.wanIpv6 || '').trim() || undefined;
     const lanIpv6Out = String(v?.lanIpv6 || '').trim() || undefined;
     cfg.ce = {
       publicConfig: {
         wanName: v.wanName,
-        wanIpv4: v.wanIpv4,
+        wanIpv4: wanIpv4Out,
         ...(wanIpv6Out !== undefined ? { wanIpv6: wanIpv6Out } : {}),
         publicBgp: {
           asn: v.bgpAsn,
@@ -517,7 +548,7 @@ const CEWizard: React.FC = () => {
           ? [
               {
                 lanName: v.lanName,
-                lanIpv4: v.lanIpv4,
+                lanIpv4: lanIpv4Out,
                 ...(lanIpv6Out !== undefined ? { lanIpv6: lanIpv6Out } : {}),
               },
             ]
@@ -563,16 +594,17 @@ const CEWizard: React.FC = () => {
       message.error('缺少 IBR 实例 UUID，无法继续');
       return;
     }
+    let tunnelReferenced = Boolean(tunnelRefNames);
+    let refNamesPart = tunnelRefNames?.length
+      ? `引用隧道：${tunnelRefNames.join('、')}`
+      : '当前 IBR 已被 SRv6 隧道引用';
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
-        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
-        message.error(
-          `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
-          8,
-        );
-        return;
+        refNamesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
+        tunnelReferenced = true;
+        setTunnelRefNames(names);
       }
     } catch (e: any) {
       console.warn('CEWizard: fetchSrv6VrReferences failed:', e);
@@ -601,7 +633,26 @@ const CEWizard: React.FC = () => {
           return;
         }
       }
-      const cfg = buildConfigFromValues(values);
+      let cfg: Record<string, unknown>;
+      if (tunnelReferenced) {
+        const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
+        const base =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? (existing as Record<string, unknown>)
+            : {};
+        const patched = applyCeWizardReferencedChanges(base, values);
+        if (patched.blockedReasons?.length) {
+          message.error(formatTunnelRefBlockedMessage(refNamesPart, patched.blockedReasons), 10);
+          return;
+        }
+        if (!patched.changedLabels.length) {
+          message.info(`${TUNNEL_REF_NOOP_TOAST}${refNamesPart ? ` ${refNamesPart}` : ''}`, 8);
+          return;
+        }
+        cfg = patched.cfg;
+      } else {
+        cfg = buildConfigFromValues(values);
+      }
       if (!cfg || (typeof cfg === 'object' && Object.keys(cfg).length === 0)) {
         message.warning('配置为空，请先完成第 1/2 步配置后再下发。');
         return;
@@ -612,18 +663,19 @@ const CEWizard: React.FC = () => {
       // 1. 先保存到平台（saveVRConfig + setVRRole），失败则中止设备下发
       let finalCfg = cfg;
       try {
-        const existing = await getVRConfig(uuid);
-
-        // Remove existing ce/role to ensure they are sorted correctly
-        const cleanExisting: Record<string, unknown> = {
-          ...(existing && typeof existing === 'object' && !Array.isArray(existing)
-            ? (existing as Record<string, unknown>)
-            : {}),
-        };
-        delete cleanExisting.ce;
-        delete cleanExisting.role;
-
-        finalCfg = sortVrConfigJsonKeys({ ...cleanExisting, ...cfg }, 'ce');
+        if (tunnelReferenced) {
+          finalCfg = sortVrConfigJsonKeys(cfg, 'ce');
+        } else {
+          const existing = await getVRConfig(uuid);
+          const cleanExisting: Record<string, unknown> = {
+            ...(existing && typeof existing === 'object' && !Array.isArray(existing)
+              ? (existing as Record<string, unknown>)
+              : {}),
+          };
+          delete cleanExisting.ce;
+          delete cleanExisting.role;
+          finalCfg = sortVrConfigJsonKeys({ ...cleanExisting, ...cfg }, 'ce');
+        }
         await saveVRConfig(uuid, finalCfg);
         await setVRRole(uuid, 'CE');
       } catch (e: any) {
@@ -631,16 +683,15 @@ const CEWizard: React.FC = () => {
         throw new Error(e?.message || '保存到平台失败，已中止设备下发');
       }
 
-      // 2. 再经代理 POST /V2/ctcontrol/VR2/VRConfig，other 为 uuid=...
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const method = 'POST';
       const other = `uuid=${uuid}`;
-      const data = await proxyApiRequest(path, method, other, cfg);
+      const data = await proxyApiRequest(path, method, other, tunnelReferenced ? finalCfg : cfg);
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
       setExistingCfg(finalCfg);
-      message.success(data?.msg || '配置已下发');
+      message.success(tunnelReferenced ? TUNNEL_REF_OK_TOAST : data?.msg || '配置已下发');
       await refreshDeviceData(true);
     } catch (err: any) {
       message.error(`下发失败：${err?.message || '未知错误'}`);
@@ -678,8 +729,11 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
               />
             </Form.Item>
+            {fingerprintLocked ? (
+              <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{tunnelRefLockTip(tunnelRefNames)}</div>
+            ) : null}
             <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码" preserve>
-              <Input placeholder="例如 200.1.1.2/24" />
+              <Input placeholder="例如 200.1.1.2/24" disabled={fingerprintLocked} />
             </Form.Item>
             <Form.Item name="wanIpv6" label="WAN 侧 IPv6 地址/掩码" preserve>
               <Input placeholder="例如 2408:3333:1002::1/64" />
@@ -687,7 +741,7 @@ const CEWizard: React.FC = () => {
             <div style={{ height: 12 }} />
             <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（CE to PE）</div>
             <Form.Item name="bgpAsn" label="BGP ASN" rules={[{ required: true, message: '请输入 BGP ASN' }]} preserve>
-              <InputNumber style={{ width: '100%' }} placeholder="例如 100" min={1} max={4294967295} />
+              <InputNumber style={{ width: '100%' }} placeholder="例如 100" min={1} max={4294967295} disabled={fingerprintLocked} />
             </Form.Item>
             <Form.Item
               name="bgpRouterId"
@@ -712,6 +766,7 @@ const CEWizard: React.FC = () => {
               <Select
                 placeholder="请选择接口"
                 showSearch
+                disabled={fingerprintLocked}
                 loading={ifaceLoading}
                 options={ifaceOptions.map((n) => ({
                   value: n,
@@ -726,7 +781,7 @@ const CEWizard: React.FC = () => {
               />
             </Form.Item>
             <Form.Item name="lanIpv4" label="LAN 侧 IPv4 地址/掩码" preserve>
-              <Input placeholder="例如 130.1.1.1/24" />
+              <Input placeholder="例如 130.1.1.1/24" disabled={fingerprintLocked} />
             </Form.Item>
             <Form.Item name="lanIpv6" label="LAN 侧 IPv6 地址/掩码" preserve>
               <Input placeholder="例如 2408:3333:1002::1/64" />
@@ -911,7 +966,9 @@ const CEWizard: React.FC = () => {
       >
         <div style={{ color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
-            本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。
+            {fingerprintLocked
+              ? `${TUNNEL_REF_CONFIRM_LEAD}WAN IPv4、LAN 口、LAN IPv4、BGP ASN 已锁定。`
+              : '本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。'}
           </div>
           <div style={{ marginBottom: 12 }}>
             影响范围包括但不限于：接口与子接口、IPv4/IPv6 地址与状态、静态路由、NAT 设置、BGP/VRF、SRv6 参数及可能相关的策略项。已有的手工修改可能被覆盖。

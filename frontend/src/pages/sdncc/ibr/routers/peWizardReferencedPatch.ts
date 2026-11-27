@@ -14,12 +14,14 @@ import {
 } from './hubPeInventory';
 import {
   buildWanStaticRoutesFromRows,
+  wanIfNamesMatch,
   type WanRouteFormRow,
 } from './peWizardWanRoutes';
 import {
   patchVrConfigWanNdProxy,
   wanNdProxyIntentDiffers,
 } from './peWizardNdProxy';
+import { pickPrimaryIpv4Cidr } from './vrIpv4Utils';
 
 export type PeWizardReferencedValues = {
   sidPrefix?: unknown;
@@ -221,6 +223,39 @@ const patchPublicIpv6Routes = (
   return true;
 };
 
+const roleDevMatches = (dev: string, roleDevs: string[]): boolean =>
+  Boolean(dev) && roleDevs.some((d) => wanIfNamesMatch(d, dev));
+
+/**
+ * 与后端 mergeRoleRoutes 对齐：只替换当前角色 WAN `dev` 上的 IPv4 路由，
+ * 保留无 `dev` 或其它接口上的表项（隧道/业务注入）。
+ */
+const patchPublicIpv4Routes = (
+  cfg: Record<string, unknown>,
+  formRoutes: Array<{ destination: string; dev: string; priority: number }>,
+  roleDevs: string[],
+): boolean => {
+  if (!roleDevs.length) return false;
+  const existing = Array.isArray(cfg.ipv4_route) ? (cfg.ipv4_route as unknown[]) : [];
+  const kept: unknown[] = [];
+  for (const item of existing) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      kept.push(item);
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+    const dev = text(row.dev);
+    if (!dev || !roleDevMatches(dev, roleDevs)) kept.push(row);
+  }
+  const next = [...kept, ...formRoutes];
+  const before = normalizeIpv4RouteList(existing);
+  const after = normalizeIpv4RouteList(next);
+  if (stableStringify(before) === stableStringify(after)) return false;
+  if (next.length) cfg.ipv4_route = next;
+  else delete cfg.ipv4_route;
+  return true;
+};
+
 const inventoryRouteSignature = (inv: HubInventory | null): string => {
   if (!inv) return '';
   const wan = [...inv.wan]
@@ -308,7 +343,7 @@ function mergeInterfacesAndLanBgp(
     for (const item of next) {
       const name = text(item?.name);
       if (!name) continue;
-      const idx = cur.findIndex((c) => text(c?.name) === name);
+      const idx = cur.findIndex((c) => wanIfNamesMatch(c?.name, name));
       if (idx < 0) {
         cur.push({ ...item });
         added.push(name);
@@ -377,7 +412,67 @@ function mergeInterfacesAndLanBgp(
   return labels;
 }
 
-type LockedLanRow = { vrf: string; asn: string; routerId: string; rd: string; rt: string };
+type LockedLanRow = {
+  vrf: string;
+  ifName: string;
+  ipv4: string;
+  asn: string;
+  routerId: string;
+  rd: string;
+  rt: string;
+};
+
+const ifNameInSet = (ifName: unknown, names: Iterable<string>): boolean => {
+  const n = text(ifName);
+  if (!n) return false;
+  for (const s of names) {
+    if (wanIfNamesMatch(n, s)) return true;
+  }
+  return false;
+};
+
+const ifaceIpv4ByName = (cfg: Record<string, unknown>, ifName: string): string => {
+  if (!ifName) return '';
+  for (const key of IFACE_BUCKETS) {
+    const arr = Array.isArray(cfg[key]) ? (cfg[key] as Record<string, unknown>[]) : [];
+    const hit = arr.find((it) => wanIfNamesMatch(it?.name, ifName));
+    if (hit) return pickPrimaryIpv4Cidr(hit.ipv4_static ?? hit.ipv4);
+  }
+  return '';
+};
+
+/** Hub 状态 / 引用表里已绑定隧道的 LAN 口 */
+export const collectBoundHubLanIfNames = (status: {
+  portRegistry?: Array<{ lanIf?: string | null }>;
+  tunnels?: Array<{
+    hubBindings?: { lanIf?: string | null } | null;
+    innerIfMeta?: { innerIf?: string | null };
+  }>;
+} | null | undefined): Set<string> => {
+  const out = new Set<string>();
+  const add = (v?: string | null) => {
+    const n = text(v);
+    if (n) out.add(n);
+  };
+  (status?.portRegistry || []).forEach((e) => add(e.lanIf));
+  (status?.tunnels || []).forEach((t) => {
+    add(t.hubBindings?.lanIf);
+    add(t.innerIfMeta?.innerIf);
+  });
+  return out;
+};
+
+/** Hub：该 LAN 口的 ifName/主 IPv4 是否应锁定（绑定集为空未知时，对已保存口失败关闭） */
+export const isHubLanIfNameLocked = (
+  ifName: unknown,
+  boundLanIfNames: Set<string> | null,
+  savedLanIfNames: Iterable<string>,
+): boolean => {
+  const n = text(ifName);
+  if (!n) return false;
+  if (boundLanIfNames === null) return ifNameInSet(n, savedLanIfNames);
+  return ifNameInSet(n, boundLanIfNames);
+};
 
 /** 生效配置常被剥掉 inventory：用 pe.publicConfig / lanConfig 还原一份供 diff */
 const inventoryFromPeFallback = (cfg: Record<string, unknown>): HubInventory | null => {
@@ -448,8 +543,11 @@ const savedLanRows = (cfg: unknown): Map<string, LockedLanRow> => {
     const vrf = text(r?.vrf);
     if (!vrf) return;
     const bgp = (r.lanBgp && typeof r.lanBgp === 'object' ? r.lanBgp : r) as Record<string, unknown>;
+    const ifName = text(r.lanName || r.ifName);
     out.set(vrf, {
       vrf,
+      ifName,
+      ipv4: pickPrimaryIpv4Cidr(r.ipv4) || ifaceIpv4ByName(c, ifName),
       asn: text(bgp.asn),
       routerId: text(bgp.routerId),
       rd: text(bgp.routeDistinguisher),
@@ -458,20 +556,48 @@ const savedLanRows = (cfg: unknown): Map<string, LockedLanRow> => {
   });
   (parseHubInventoryFromConfig(cfg)?.lan || []).forEach((l) => {
     const vrf = text(l.vrf);
-    if (!vrf || out.has(vrf)) return;
-    out.set(vrf, {
-      vrf,
-      asn: text(l.privateAsn),
-      routerId: text(l.routerId),
-      rd: text(l.routeDistinguisher),
-      rt: text(l.routeTarget),
-    });
+    if (!vrf) return;
+    const ifName = text(l.ifName);
+    const ipv4 = pickPrimaryIpv4Cidr(l.ipv4) || ifaceIpv4ByName(c, ifName);
+    const prev = out.get(vrf);
+    if (!prev) {
+      out.set(vrf, {
+        vrf,
+        ifName,
+        ipv4,
+        asn: text(l.privateAsn),
+        routerId: text(l.routerId),
+        rd: text(l.routeDistinguisher),
+        rt: text(l.routeTarget),
+      });
+      return;
+    }
+    if (!prev.ifName && ifName) prev.ifName = ifName;
+    if (!prev.ipv4 && ipv4) prev.ipv4 = ipv4;
   });
   return out;
 };
 
 /** 被隧道引用时锁定的 LAN VRF（已保存配置中存在的 VRF） */
 export const lockedLanVrfsFromConfig = (cfg: unknown): Set<string> => new Set(savedLanRows(cfg).keys());
+
+/** 已保存 LAN 口名（Hub 未解析绑定集时用于失败关闭） */
+export const lockedLanIfNamesFromConfig = (cfg: unknown): Set<string> => {
+  const out = new Set<string>();
+  savedLanRows(cfg).forEach((row) => {
+    if (row.ifName) out.add(row.ifName);
+  });
+  return out;
+};
+
+const lanRowIfNameBound = (
+  savedIfName: string,
+  boundLanIfNames: Set<string> | null | undefined,
+): boolean => {
+  if (!savedIfName || boundLanIfNames === undefined) return false;
+  if (boundLanIfNames === null) return true;
+  return ifNameInSet(savedIfName, boundLanIfNames);
+};
 
 /** 被隧道引用时锁定的 WAN 口（已保存 inventory / pe.publicConfig） */
 export const lockedWanIfNamesFromConfig = (cfg: unknown): Set<string> => {
@@ -494,7 +620,11 @@ export const lockedWanIfNamesFromConfig = (cfg: unknown): Set<string> => {
 };
 
 /** 比较向导 LAN 行与已保存配置，返回被锁字段的修改说明（含缺失已锁定 VRF） */
-export const lockedLanFieldChanges = (cfg: unknown, lanRows: HubLanFormRow[] | undefined): string[] => {
+export const lockedLanFieldChanges = (
+  cfg: unknown,
+  lanRows: HubLanFormRow[] | undefined,
+  opts?: { boundLanIfNames?: Set<string> | null },
+): string[] => {
   const saved = savedLanRows(cfg);
   const out: string[] = [];
   const present = new Set<string>();
@@ -511,6 +641,21 @@ export const lockedLanFieldChanges = (cfg: unknown, lanRows: HubLanFormRow[] | u
     cmp('Router-ID', o.routerId, text(r.routerId));
     cmp('RD', o.rd, text(r.routeDistinguisher));
     cmp('RT', o.rt, text(r.routeTarget));
+    if (lanRowIfNameBound(o.ifName, opts?.boundLanIfNames)) {
+      const nextIf = text(r.ifName);
+      if (o.ifName && nextIf && !wanIfNamesMatch(o.ifName, nextIf)) {
+        diffs.push(`LAN 口 ${o.ifName}→${nextIf}`);
+      } else if (o.ifName && !nextIf) {
+        diffs.push(`LAN 口 ${o.ifName}→-`);
+      }
+      const savedIp = o.ipv4;
+      const nextIp = pickPrimaryIpv4Cidr(r.ipv4);
+      if (savedIp && nextIp && savedIp !== nextIp) {
+        diffs.push(`LAN IPv4 ${savedIp}→${nextIp}`);
+      } else if (savedIp && !nextIp) {
+        diffs.push(`LAN IPv4 ${savedIp}→-`);
+      }
+    }
     if (diffs.length) out.push(`VRF ${vrf}：${diffs.join('，')}`);
   });
   for (const vrf of saved.keys()) {
@@ -526,11 +671,9 @@ export const lockedWanFieldChanges = (
 ): string[] => {
   const locked = lockedWanIfNamesFromConfig(cfg);
   if (!locked.size) return [];
-  const present = new Set(
-    (wanRows || []).map((r) => text(r?.ifName)).filter(Boolean),
-  );
+  const present = (wanRows || []).map((r) => text(r?.ifName)).filter(Boolean);
   return [...locked]
-    .filter((ifName) => !present.has(ifName))
+    .filter((ifName) => !present.some((p) => wanIfNamesMatch(p, ifName)))
     .map((ifName) => `WAN ${ifName}：不可删除（已被隧道引用）`);
 };
 
@@ -545,11 +688,24 @@ export function applyPeWizardReferencedChanges(
     existingHubInventory?: HubInventory | null;
     /** 向导全量构建结果（buildConfigFromValues），仅用于取接口/VRF/LAN BGP 增量 */
     fullCfg?: Record<string, unknown>;
+    /**
+     * Hub：隧道已绑定的 LAN 口（hubBindings.lanIf / 注册表）。
+     * `null` 表示引用关系已知但口名未解析，对已保存 LAN 的 ifName/主 IPv4 失败关闭。
+     */
+    boundLanIfNames?: Set<string> | null;
   },
 ): PeWizardReferencedPatchResult {
   const cfg = cloneCfg(existing);
   const changedLabels: string[] = [];
   const blockedReasons: string[] = [];
+  if (opts.boundLanIfNames !== undefined) {
+    const identity = lockedLanFieldChanges(existing, values.lanConfigs, {
+      boundLanIfNames: opts.boundLanIfNames,
+    }).filter((l) => /LAN 口|LAN IPv4/.test(l));
+    if (identity.length) {
+      return { cfg: cloneCfg(existing), changedLabels: [], blockedReasons: identity };
+    }
+  }
   const wanRows = collectWanRows(values, opts.isHubPe);
   const { ipv4_route, ipv6_route } = buildWanStaticRoutesFromRows(wanRows);
 
@@ -558,11 +714,8 @@ export function applyPeWizardReferencedChanges(
     changedLabels.push('Locator SID ND 代答');
   }
 
-  const beforeV4 = normalizeIpv4RouteList(cfg.ipv4_route);
-  const afterV4 = normalizeIpv4RouteList(ipv4_route);
-  if (stableStringify(beforeV4) !== stableStringify(afterV4)) {
-    if (ipv4_route.length) cfg.ipv4_route = ipv4_route;
-    else delete cfg.ipv4_route;
+  const roleWanDevs = wanRows.map((r) => text(r.ifName)).filter(Boolean);
+  if (patchPublicIpv4Routes(cfg, ipv4_route, roleWanDevs)) {
     changedLabels.push('IPv4 静态路由');
   }
 

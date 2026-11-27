@@ -13,13 +13,14 @@ import {
   setVRRole,
   fetchVrCacheMerged,
 } from '../../../../../services/virtualRouterApi';
-import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
+import { fetchSrv6HubStatus, fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import {
   collectIfaceNamesForSelect,
   looksLikeIfaceName,
   pickDeviceBlobForLookup,
 } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
+import { pickIfaceIpv4FromDevice, pickPrimaryIpv4Cidr } from '../vrIpv4Utils';
 import { filterLinkLocalIpv6, pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 import {
   attachHubInventoryToConfig,
@@ -38,6 +39,7 @@ import {
   buildWanStaticRoutesFromRows,
   pickIpv4RouteForWan,
   resolveHubWanRowsForPeWizardForm,
+  wanIfNamesMatch,
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
 import { isValidRdRtToken } from '../../srv6/srv6RdRt';
@@ -51,11 +53,15 @@ import {
 } from '../peWizardNdProxy';
 import {
   applyPeWizardReferencedChanges,
+  collectBoundHubLanIfNames,
+  isHubLanIfNameLocked,
   lockedLanFieldChanges,
+  lockedLanIfNamesFromConfig,
   lockedLanVrfsFromConfig,
   lockedWanFieldChanges,
   lockedWanIfNamesFromConfig,
 } from '../peWizardReferencedPatch';
+import { TUNNEL_REF_CONFIRM_LEAD } from '../roleWizardReferencedMerge';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -213,7 +219,10 @@ function deviceStaticIfRoleSet(
   roleValue: unknown,
 ): string | undefined {
   if (!roleText(roleValue)) return undefined;
-  return roleText(iface?.[key]) || undefined;
+  const raw = roleText(iface?.[key]) || undefined;
+  if (!raw) return undefined;
+  if (key === 'ipv4_static') return pickPrimaryIpv4Cidr(raw) || undefined;
+  return raw;
 }
 
 /** IPv6 路由没有 dev。角色没配则不回显；配了则按目的网段对上设备条目，单条时直接展示以便看出不一致。 */
@@ -386,24 +395,47 @@ const PEWizard: React.FC = () => {
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
   /** 被 SRv6 隧道引用时：现网已存在的 LAN BGP VRF，其 ASN/Router-ID/RD/RT 锁定 */
   const [tunnelRefNames, setTunnelRefNames] = useState<string[] | null>(null);
+  /** Hub：隧道已绑定 LAN 口；`null` = 未知/失败关闭（锁已保存口）；非空 Set = 仅锁这些口 */
+  const [boundHubLanIfNames, setBoundHubLanIfNames] = useState<Set<string> | null>(null);
   useEffect(() => {
     if (!uuid) return;
     let alive = true;
     fetchSrv6VrReferences(uuid)
-      .then((refs: any) => {
+      .then(async (refs: any) => {
         if (!alive) return;
         if (refs?.count && refs.count > 0) {
           const names = Array.from(
             new Set((refs.refs || []).map((r: any) => r?.tunnelName).filter(Boolean)),
           ) as string[];
           setTunnelRefNames(names);
-        } else setTunnelRefNames(null);
+          if (isHubPe) {
+            // 引用已确认、Hub status 未回前：失败关闭，禁止空 Set 解锁窗口
+            setBoundHubLanIfNames(null);
+            try {
+              const status = await fetchSrv6HubStatus(uuid);
+              if (!alive) return;
+              const bound = collectBoundHubLanIfNames(status);
+              setBoundHubLanIfNames(bound.size ? bound : null);
+            } catch {
+              if (alive) setBoundHubLanIfNames(null);
+            }
+          } else {
+            setBoundHubLanIfNames(null);
+          }
+        } else {
+          setTunnelRefNames(null);
+          setBoundHubLanIfNames(new Set());
+        }
       })
-      .catch(() => alive && setTunnelRefNames(null));
+      .catch(() => {
+        if (!alive) return;
+        setTunnelRefNames(null);
+        setBoundHubLanIfNames(null);
+      });
     return () => {
       alive = false;
     };
-  }, [uuid]);
+  }, [uuid, isHubPe]);
   const lockedLanVrfs = useMemo(
     () => (tunnelRefNames ? lockedLanVrfsFromConfig(existingCfg) : new Set<string>()),
     [tunnelRefNames, existingCfg],
@@ -412,24 +444,42 @@ const PEWizard: React.FC = () => {
     () => (tunnelRefNames ? lockedWanIfNamesFromConfig(existingCfg) : new Set<string>()),
     [tunnelRefNames, existingCfg],
   );
+  const savedLanIfNames = useMemo(
+    () => lockedLanIfNamesFromConfig(existingCfg),
+    [existingCfg],
+  );
   const lanBgpLockTip = tunnelRefNames
     ? `VRF ID / ASN / Router-ID / RD / RT 已被隧道${
         tunnelRefNames.length ? `「${tunnelRefNames.join('、')}」` : ''
       }引用，如需修改请先删除隧道`
     : '';
+  const lanIfLockTip = tunnelRefNames
+    ? `LAN 口与主 IPv4 已被隧道${
+        tunnelRefNames.length ? `「${tunnelRefNames.join('、')}」` : ''
+      }绑定，如需修改请先删除隧道`
+    : '';
   /** LAN 第 idx 行的 VRF 已在现网存在且被隧道引用 → BGP 关键字段只读 */
   const isLanBgpLocked = (idx: number): boolean => {
     if (!tunnelRefNames) return false;
+    if (!isHubPe) return true;
     const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
     const vrf = rows[idx]?.vrf;
     return vrf != null && String(vrf).trim() !== '' && lockedLanVrfs.has(String(vrf).trim());
+  };
+  const spokeTunnelLocked = Boolean(tunnelRefNames) && !isHubPe;
+  /** Hub：仅隧道已绑定的 LAN 口锁 ifName/主 IPv4；未绑定的额外 LAN 仍可改 */
+  const isLanIfLocked = (idx: number): boolean => {
+    if (!tunnelRefNames) return false;
+    if (!isHubPe) return true;
+    const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
+    return isHubLanIfNameLocked(rows[idx]?.ifName, boundHubLanIfNames, savedLanIfNames);
   };
   /** WAN 第 idx 行接口已在现网存在且被隧道引用 → 禁止删 Tab */
   const isWanLocked = (idx: number): boolean => {
     if (!tunnelRefNames) return false;
     const rows = Array.isArray(watchHubWanInventory) ? watchHubWanInventory : [];
     const ifName = String(rows[idx]?.ifName ?? '').trim();
-    return Boolean(ifName) && lockedWanIfNames.has(ifName);
+    return Boolean(ifName) && [...lockedWanIfNames].some((n) => wanIfNamesMatch(n, ifName));
   };
   const existingHubInventory = useMemo(
     () => parseHubInventoryFromConfig(existingCfg),
@@ -535,17 +585,7 @@ const PEWizard: React.FC = () => {
     return scanBuckets(dev);
   };
 
-  const pickIfaceIpv4 = (iface: any) =>
-    iface?.ipv4_static ??
-    iface?.ipv4Static ??
-    iface?.ipv4 ??
-    iface?.ipv4_address ??
-    iface?.ipv4Address ??
-    iface?.ip_address ??
-    iface?.ipAddress ??
-    iface?.ip ??
-    iface?.address ??
-    '';
+  const pickIfaceIpv4 = pickIfaceIpv4FromDevice;
   const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
 
   /** WAN 口变更时：从 VR3 设备回读回填 IPv4/IPv6 */
@@ -1516,9 +1556,28 @@ const PEWizard: React.FC = () => {
       const values = form.getFieldsValue(true);
       let cfg: Record<string, unknown>;
       if (tunnelReferenced) {
+        const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
+        const base =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? (existing as Record<string, unknown>)
+            : {};
+        let boundLanForDispatch: Set<string> | null = isHubPe ? boundHubLanIfNames : lockedLanIfNamesFromConfig(base);
+        if (isHubPe) {
+          try {
+            const status = await fetchSrv6HubStatus(uuid);
+            const bound = collectBoundHubLanIfNames(status);
+            boundLanForDispatch = bound.size ? bound : null;
+            setBoundHubLanIfNames(boundLanForDispatch);
+          } catch {
+            boundLanForDispatch = null;
+            setBoundHubLanIfNames(null);
+          }
+        }
         const lockedChanges = [
-          ...lockedLanFieldChanges(existingCfg, values.lanConfigs),
-          ...lockedWanFieldChanges(existingCfg, values.hubWanInventory),
+          ...lockedLanFieldChanges(base, values.lanConfigs, {
+            boundLanIfNames: boundLanForDispatch,
+          }),
+          ...lockedWanFieldChanges(base, values.hubWanInventory),
         ];
         if (lockedChanges.length) {
           message.error(
@@ -1527,15 +1586,11 @@ const PEWizard: React.FC = () => {
           );
           return;
         }
-        const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
-        const base =
-          existing && typeof existing === 'object' && !Array.isArray(existing)
-            ? (existing as Record<string, unknown>)
-            : {};
         const patched = applyPeWizardReferencedChanges(base, values, {
           isHubPe,
-          existingHubInventory: parseHubInventoryFromConfig(existingCfg) || parseHubInventoryFromConfig(base),
+          existingHubInventory: parseHubInventoryFromConfig(base) || parseHubInventoryFromConfig(existingCfg),
           fullCfg: buildConfigFromValues(values),
+          boundLanIfNames: boundLanForDispatch,
         });
         if (patched.blockedReasons?.length) {
           message.error(
@@ -1624,7 +1679,7 @@ const PEWizard: React.FC = () => {
               },
             ]}
           >
-            <Input placeholder="例如 2400:1234::1 或 2400:1234::/48" />
+            <Input placeholder="例如 2400:1234::1 或 2400:1234::/48" disabled={Boolean(tunnelRefNames)} />
           </Form.Item>
           {isHubPe ? (
             <>
@@ -1698,6 +1753,7 @@ const PEWizard: React.FC = () => {
                         <Select
                           placeholder="请选择接口"
                           showSearch
+                          disabled={isWanLocked(idx)}
                           loading={ifaceLoading}
                           options={peIfaceSelectOptions(idx, 'hubWan')}
                           filterOption={(input: string, option?: { value?: string }) =>
@@ -1727,7 +1783,7 @@ const PEWizard: React.FC = () => {
                           },
                         ]}
                       >
-                        <Input placeholder="例如 2408:3333:1002::1/64" />
+                        <Input placeholder="例如 2408:3333:1002::1/64" disabled={isWanLocked(idx)} />
                       </Form.Item>
                       <div style={{ height: 8 }} />
                       <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
@@ -1837,6 +1893,7 @@ const PEWizard: React.FC = () => {
             <Select
               placeholder="请选择接口"
               showSearch
+              disabled={spokeTunnelLocked}
               loading={ifaceLoading}
               options={peIfaceSelectOptions(0, 'wan')}
               filterOption={(input: string, option?: { value?: string }) =>
@@ -1860,7 +1917,7 @@ const PEWizard: React.FC = () => {
               { pattern: /^[0-9a-fA-F:]+\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/, message: '格式示例：2408:3333:1002::1/64' },
             ]}
           >
-            <Input placeholder="例如 2408:3333:1002::1/64" />
+            <Input placeholder="例如 2408:3333:1002::1/64" disabled={spokeTunnelLocked} />
           </Form.Item>
           <Form.Item name="wanNdProxy" valuePropName="checked">
             <Checkbox disabled={!ndProxySidHost && !watchWanNdProxy}>
@@ -1874,7 +1931,7 @@ const PEWizard: React.FC = () => {
           <div style={{ height: 12 }} />
           <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
           <Form.Item name="bgpAsn" label="ASN" rules={[{ required: true, message: '请输入 BGP ASN' }]}>
-            <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
+            <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" disabled={spokeTunnelLocked} />
           </Form.Item>
           <Form.Item name="bgpRouterId" label="Router-ID" rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
             <Input
@@ -2012,6 +2069,7 @@ const PEWizard: React.FC = () => {
                       <Select
                         placeholder="请选择接口"
                         showSearch
+                        disabled={isLanIfLocked(idx)}
                         loading={ifaceLoading}
                         options={peIfaceSelectOptions(idx, 'lan')}
                         filterOption={(input: string, option?: { value?: string }) =>
@@ -2023,8 +2081,19 @@ const PEWizard: React.FC = () => {
                       />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'ipv4']} label="IPv4 地址/掩码">
-                      <Input placeholder="例如 130.1.1.1/24" />
+                      <Input placeholder="例如 130.1.1.1/24" disabled={isLanIfLocked(idx)} />
                     </Form.Item>
+                    <div
+                      key={`${field.key}-if-lock-tip`}
+                      style={{
+                        color: '#d46b08',
+                        fontSize: 12,
+                        margin: '-8px 0 8px 0',
+                        display: isLanIfLocked(idx) ? 'block' : 'none',
+                      }}
+                    >
+                      {lanIfLockTip}
+                    </div>
                     <Form.Item {...field} name={[field.name, 'ipv6']} label="IPv6 地址/掩码">
                       <Input placeholder="例如 2408:3333:1002::1/64" />
                     </Form.Item>
@@ -2528,7 +2597,13 @@ const PEWizard: React.FC = () => {
       >
         <div style={{ color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
-            本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。
+            {tunnelRefNames
+              ? `${TUNNEL_REF_CONFIRM_LEAD}${
+                  isHubPe
+                    ? '已有 WAN/LAN 身份字段已锁定，仍可新增 WAN/LAN。'
+                    : 'SID、公网 IPv6、内网口/IP/VRF/ASN 已锁定。'
+                }`
+              : '本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。'}
           </div>
           <div style={{ marginBottom: 12 }}>
             影响范围包括但不限于：接口与子接口、IPv4/IPv6 地址与状态、静态路由、NAT 设置、BGP/VRF、SRv6 参数及可能相关的策略项。已有的手工修改可能被覆盖。

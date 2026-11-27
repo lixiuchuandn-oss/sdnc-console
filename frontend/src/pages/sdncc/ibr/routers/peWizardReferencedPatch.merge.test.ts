@@ -1,6 +1,9 @@
 import {
   applyPeWizardReferencedChanges,
+  collectBoundHubLanIfNames,
+  isHubLanIfNameLocked,
   lockedLanFieldChanges,
+  lockedLanIfNamesFromConfig,
   lockedLanVrfsFromConfig,
   lockedWanFieldChanges,
   lockedWanIfNamesFromConfig,
@@ -71,6 +74,31 @@ describe('mergeInterfacesAndLanBgp via applyPeWizardReferencedChanges', () => {
     // 已有 VRF 段 neighbor 未被覆盖
     expect(bgp.find((b) => b.vrf === 10001)?.neighbor).toEqual([{ ip: '2200::1' }]);
     expect(bgp.some((b) => b.vrf === 10002)).toBe(true);
+  });
+
+  it('merges interfaces by normalized ifName (space variants) without duplicating', () => {
+    const base = {
+      ...baseCfg(),
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet0/7/0', ipv6_static: '2100::100/64', tunnel_extra: 'keep' },
+        { name: 'GigabitEthernet0/8/0', ipv4_static: '23.1.1.2/24', vrf: 10001 },
+      ],
+    };
+    const full = {
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/7/0', ipv6_static: '2100::100/64', status: 'up' },
+        { name: 'GigabitEthernet 0/8/0', ipv4_static: '23.1.1.2/24', vrf: 10001 },
+      ],
+    };
+    const { cfg, changedLabels, blockedReasons } = applyPeWizardReferencedChanges(base, values, {
+      isHubPe: false,
+      fullCfg: full,
+    });
+    expect(blockedReasons).toBeUndefined();
+    const ifs = cfg.interfaces_GigabitEthernet as Record<string, unknown>[];
+    expect(ifs).toHaveLength(2);
+    expect(ifs.find((i) => String(i.name).includes('0/7/0'))?.tunnel_extra).toBe('keep');
+    expect(changedLabels.some((l) => l.includes('新增接口'))).toBe(false);
   });
 
   it('blocks RD/RT change on existing VRF and leaves cfg untouched', () => {
@@ -194,5 +222,138 @@ describe('locked LAN fields (edit-stage)', () => {
     expect(
       lockedWanFieldChanges(baseCfg(), [{ ifName: 'GigabitEthernet 0/a/0', ipv6: '2600::1/64' }]),
     ).toEqual(['WAN GigabitEthernet 0/7/0：不可删除（已被隧道引用）']);
+  });
+
+  it('locks ifName/IPv4 only on tunnel-bound LAN rows', () => {
+    const bound = new Set(['GigabitEthernet 0/8/0']);
+    expect(
+      lockedLanFieldChanges(
+        baseCfg(),
+        [
+          {
+            vrf: 10001,
+            ifName: 'GigabitEthernet 0/9/0',
+            ipv4: '23.1.1.2/24',
+            asn: 65002,
+            routerId: '23.1.1.2',
+            routeDistinguisher: '200:112',
+            routeTarget: '200:57966',
+          },
+        ],
+        { boundLanIfNames: bound },
+      ),
+    ).toEqual(['VRF 10001：LAN 口 GigabitEthernet 0/8/0→GigabitEthernet 0/9/0']);
+    expect(
+      lockedLanFieldChanges(
+        baseCfg(),
+        [
+          {
+            vrf: 10001,
+            ifName: 'GigabitEthernet 0/8/0',
+            ipv4: '23.1.1.99/24',
+            asn: 65002,
+            routerId: '23.1.1.2',
+            routeDistinguisher: '200:112',
+            routeTarget: '200:57966',
+          },
+        ],
+        { boundLanIfNames: bound },
+      ),
+    ).toEqual(['VRF 10001：LAN IPv4 23.1.1.2/24→23.1.1.99/24']);
+  });
+
+  it('does not lock ifName/IPv4 on unbound extra LAN', () => {
+    const cfg = {
+      ...baseCfg(),
+      interfaces_GigabitEthernet: [
+        ...(baseCfg().interfaces_GigabitEthernet as Record<string, unknown>[]),
+        { name: 'GigabitEthernet 0/b/0', ipv4_static: '26.1.1.2/24', vrf: 10002 },
+      ],
+      pe: {
+        ...(baseCfg().pe as Record<string, unknown>),
+        lanConfig: [
+          ...((baseCfg().pe as { lanConfig: Record<string, unknown>[] }).lanConfig),
+          { vrf: 10002, ifName: 'GigabitEthernet 0/b/0', ipv4: '26.1.1.2/24' },
+        ],
+      },
+    };
+    const bound = new Set(['GigabitEthernet 0/8/0']);
+    expect(
+      lockedLanFieldChanges(
+        cfg,
+        [
+          {
+            vrf: 10001,
+            ifName: 'GigabitEthernet 0/8/0',
+            ipv4: '23.1.1.2/24',
+            asn: 65002,
+            routerId: '23.1.1.2',
+            routeDistinguisher: '200:112',
+            routeTarget: '200:57966',
+          },
+          {
+            vrf: 10002,
+            ifName: 'GigabitEthernet 0/c/0',
+            ipv4: '26.1.1.9/24',
+            asn: 1,
+            routerId: '1.1.1.1',
+          },
+        ],
+        { boundLanIfNames: bound },
+      ),
+    ).toEqual([]);
+    expect(isHubLanIfNameLocked('GigabitEthernet 0/8/0', bound, lockedLanIfNamesFromConfig(cfg))).toBe(
+      true,
+    );
+    expect(isHubLanIfNameLocked('GigabitEthernet 0/b/0', bound, lockedLanIfNamesFromConfig(cfg))).toBe(
+      false,
+    );
+  });
+
+  it('fail-closes Hub LAN ifName lock when bound set is null/unknown', () => {
+    const saved = lockedLanIfNamesFromConfig(baseCfg());
+    expect(isHubLanIfNameLocked('GigabitEthernet 0/8/0', null, saved)).toBe(true);
+    expect(isHubLanIfNameLocked('GigabitEthernet 0/b/0', null, saved)).toBe(false);
+    expect(isHubLanIfNameLocked('GigabitEthernet 0/8/0', new Set(), saved)).toBe(false);
+  });
+
+  it('collects bound LAN ifNames from Hub registry and tunnel bindings', () => {
+    expect(
+      [
+        ...collectBoundHubLanIfNames({
+          portRegistry: [{ lanIf: 'GigabitEthernet 0/8/0' }],
+          tunnels: [
+            { hubBindings: { lanIf: 'GigabitEthernet 0/8/0' }, innerIfMeta: { innerIf: 'ge-inner' } },
+          ],
+        }),
+      ].sort(),
+    ).toEqual(['GigabitEthernet 0/8/0', 'ge-inner']);
+  });
+
+  it('blocks apply when bound LAN ifName changes', () => {
+    const { cfg, changedLabels, blockedReasons } = applyPeWizardReferencedChanges(
+      baseCfg(),
+      {
+        ...values,
+        lanConfigs: [
+          {
+            vrf: 10001,
+            ifName: 'GigabitEthernet 0/9/0',
+            ipv4: '23.1.1.2/24',
+            asn: 65002,
+            routerId: '23.1.1.2',
+            routeDistinguisher: '200:112',
+            routeTarget: '200:57966',
+          },
+        ],
+      },
+      {
+        isHubPe: true,
+        boundLanIfNames: new Set(['GigabitEthernet 0/8/0']),
+      },
+    );
+    expect(changedLabels).toEqual([]);
+    expect(blockedReasons?.some((r) => r.includes('LAN 口'))).toBe(true);
+    expect(cfg).toEqual(baseCfg());
   });
 });

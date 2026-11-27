@@ -75,6 +75,41 @@ describe('applyPeWizardReferencedChanges', () => {
     );
   });
 
+  it('merges ipv4_route by WAN dev and keeps extra table rows', () => {
+    const cfg = {
+      ...baseCfg,
+      ipv4_route: [
+        { destination: '20.1.1.100/32', dev: 'GigabitEthernet 0/7/0', priority: 100 },
+        { destination: '10.9.9.0/24', via: '1.1.1.1' },
+        { destination: '192.168.8.0/24', dev: 'GigabitEthernet 0/9/0', via: '192.168.8.1' },
+      ],
+    };
+    const { cfg: out, changedLabels } = applyPeWizardReferencedChanges(
+      cfg,
+      {
+        sidPrefix: '2100::100/64',
+        wanNdProxy: true,
+        wanDev: 'GigabitEthernet 0/7/0',
+        wanRouteDest: '0.0.0.0/0',
+        wanRoutePriority: 80,
+        ipv6Dest: '2200::/64',
+        ipv6Via: '2100::1',
+      },
+      { isHubPe: false },
+    );
+    expect(changedLabels).toContain('IPv4 静态路由');
+    const v4 = out.ipv4_route as Array<Record<string, unknown>>;
+    expect(v4).toEqual(
+      expect.arrayContaining([
+        { destination: '0.0.0.0/0', dev: 'GigabitEthernet 0/7/0', priority: 80 },
+        { destination: '10.9.9.0/24', via: '1.1.1.1' },
+        { destination: '192.168.8.0/24', dev: 'GigabitEthernet 0/9/0', via: '192.168.8.1' },
+      ]),
+    );
+    expect(v4.some((r) => r.destination === '20.1.1.100/32')).toBe(false);
+    expect(v4).toHaveLength(3);
+  });
+
   it('patches ND as one ordinary field among others', () => {
     const { cfg, changedLabels } = applyPeWizardReferencedChanges(
       baseCfg,

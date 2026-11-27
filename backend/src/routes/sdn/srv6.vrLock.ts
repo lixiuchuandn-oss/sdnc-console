@@ -9,6 +9,8 @@ import {
 } from './srv6.archive';
 import type { Srv6EndpointSlot } from './srv6.archive.types';
 import { findSrv6TunnelsReferencingVr } from './srv6.references';
+import { resolveHubLanIfFromTunnel } from './srv6.hub';
+import { TOWER_HUB_INVENTORY_KEY } from './srv6.hubInventory';
 
 const parseConfig = (json: string | null | undefined): Record<string, unknown> | null => {
   if (!json) return null;
@@ -43,6 +45,112 @@ const hubPeLockedFingerprintFields = (
   if (tunnel.tunnelTopology !== 'H' || !tunnel.hubPeSlot || tunnel.hubPeSlot !== slot) return null;
   if (!tunnel.hubBindings?.wanIf) return null;
   return new Set(['wanIf', 'peerPublicNeighbor', 'publicIpv6', 'sidPrefix']);
+};
+
+const ifNamesMatch = (a: unknown, b: unknown): boolean => {
+  const n = (v: unknown) =>
+    String(v ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  const left = n(a);
+  const right = n(b);
+  if (!left || !right) return false;
+  return left === right || left.replace(/\s/g, '') === right.replace(/\s/g, '');
+};
+
+const trimIpHost = (raw: unknown): string => {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  const slash = s.indexOf('/');
+  return slash >= 0 ? s.slice(0, slash) : s;
+};
+
+export const collectHubLanIfNamesFromConfig = (cfg: Record<string, unknown>): string[] => {
+  const out: string[] = [];
+  const pe =
+    cfg.pe && typeof cfg.pe === 'object' && !Array.isArray(cfg.pe)
+      ? (cfg.pe as Record<string, unknown>)
+      : {};
+  const list = [pe.lanConfig, pe.LanConfig, pe.lanConfigs].find(Array.isArray) as
+    | Record<string, unknown>[]
+    | undefined;
+  (list || []).forEach((r) => {
+    const n = String(r?.lanName || r?.ifName || '').trim();
+    if (n) out.push(n);
+  });
+  const inv = cfg[TOWER_HUB_INVENTORY_KEY];
+  if (inv && typeof inv === 'object' && !Array.isArray(inv)) {
+    const lan = (inv as { lan?: unknown }).lan;
+    if (Array.isArray(lan)) {
+      lan.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        const n = String((row as Record<string, unknown>).ifName || '').trim();
+        if (n) out.push(n);
+      });
+    }
+  }
+  return out;
+};
+
+const ifaceIpv4Host = (cfg: Record<string, unknown>, ifName: string): string => {
+  if (!ifName) return '';
+  for (const k of Object.keys(cfg)) {
+    if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+    const arr = cfg[k];
+    if (!Array.isArray(arr)) continue;
+    for (const it of arr) {
+      if (!it || typeof it !== 'object') continue;
+      if (!ifNamesMatch((it as Record<string, unknown>).name, ifName)) continue;
+      return trimIpHost(
+        (it as Record<string, unknown>).ipv4_static ?? (it as Record<string, unknown>).ipv4,
+      );
+    }
+  }
+  return '';
+};
+
+const lanConfigIpv4Host = (cfg: Record<string, unknown>, ifName: string): string => {
+  const pe =
+    cfg.pe && typeof cfg.pe === 'object' && !Array.isArray(cfg.pe)
+      ? (cfg.pe as Record<string, unknown>)
+      : {};
+  const list = [pe.lanConfig, pe.LanConfig, pe.lanConfigs].find(Array.isArray) as
+    | Record<string, unknown>[]
+    | undefined;
+  for (const r of list || []) {
+    const n = String(r?.lanName || r?.ifName || '').trim();
+    if (!ifNamesMatch(n, ifName)) continue;
+    return trimIpHost(r.ipv4);
+  }
+  return '';
+};
+
+/** Hub：已绑定 LAN 的口名 / 主 IPv4 相对提交配置的差异（不锁定未绑定的额外 LAN） */
+export const hubBoundLanIdentityDiffs = (
+  nextCfg: Record<string, unknown>,
+  boundLanIf: string | undefined,
+  expectedInnerIp?: string,
+): string[] => {
+  const want = String(boundLanIf || '').trim();
+  if (!want) return [];
+  const diffs: string[] = [];
+  const names = collectHubLanIfNamesFromConfig(nextCfg);
+  if (!names.some((n) => ifNamesMatch(n, want))) diffs.push('innerIf');
+  const expectedHost = trimIpHost(expectedInnerIp);
+  if (expectedHost) {
+    const fromIface = ifaceIpv4Host(nextCfg, want);
+    const fromLan = lanConfigIpv4Host(nextCfg, want);
+    // 接口表或 pe.lanConfig 任一相对指纹漂移即拦；两边都空视为主 IPv4 被清掉
+    if (
+      (fromIface && fromIface !== expectedHost) ||
+      (fromLan && fromLan !== expectedHost) ||
+      (!fromIface && !fromLan)
+    ) {
+      diffs.push('innerIp');
+    }
+  }
+  return diffs;
 };
 
 const formatFingerprintDiff = (fields: string[]) =>
@@ -97,6 +205,22 @@ export const assertSrv6VrConfigUpsertAllowed = async (
     const hubLock = hubPeLockedFingerprintFields(tunnel, ref.slot);
     if (hubLock) {
       fields = fields.filter((f) => hubLock.has(f));
+      const boundLanIf =
+        resolveHubLanIfFromTunnel(tunnel) ||
+        (ref.slot === 'peA'
+          ? tunnel.peAInnerIf
+          : ref.slot === 'peB'
+            ? tunnel.peBInnerIf
+            : undefined) ||
+        (expected as { innerIf?: string }).innerIf;
+      const extra = hubBoundLanIdentityDiffs(
+        nextCfg,
+        boundLanIf || undefined,
+        (expected as { innerIp?: string }).innerIp,
+      );
+      extra.forEach((f) => {
+        if (!fields.includes(f)) fields.push(f);
+      });
     }
     if (fields.length) {
       conflicts.push(

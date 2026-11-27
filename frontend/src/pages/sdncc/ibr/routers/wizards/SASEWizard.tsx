@@ -3,6 +3,7 @@ import { Button, Descriptions, Form, Input, message, Steps, Spin, Select, Switch
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getVRConfig, saveVRConfig, setVRRole } from '../../../../../services/virtualRouterApi';
+import { pickPrimaryIpv4Cidr } from '../vrIpv4Utils';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { isMemifIfaceName } from '../vrMergedHelpers';
@@ -16,6 +17,14 @@ import {
   stripIpsecPresetWizardPlatformBlocks,
 } from '../ipsecPresetWizardLib';
 import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
+import {
+  applyIpsecPresetWizardReferencedChanges,
+  formatTunnelRefBlockedMessage,
+  TUNNEL_REF_CONFIRM_LEAD,
+  TUNNEL_REF_NOOP_TOAST,
+  TUNNEL_REF_OK_TOAST,
+  tunnelRefLockTip,
+} from '../roleWizardReferencedMerge';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -32,10 +41,31 @@ const SASEWizard: React.FC = () => {
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  const [tunnelRefNames, setTunnelRefNames] = useState<string[] | null>(null);
+  const fingerprintLocked = Boolean(tunnelRefNames);
   /** 仅首包设备回读用于初始化右翼编辑表；之后「刷新设备回读」只更左翼 mirror，不覆盖已编辑内容 */
   const formSeededFromDeviceReadRef = React.useRef(false);
   useEffect(() => {
     formSeededFromDeviceReadRef.current = false;
+  }, [uuid]);
+
+  useEffect(() => {
+    if (!uuid) return;
+    let alive = true;
+    fetchSrv6VrReferences(uuid)
+      .then((refs: any) => {
+        if (!alive) return;
+        if (refs?.count && refs.count > 0) {
+          const names = Array.from(
+            new Set((refs.refs || []).map((r: any) => r?.tunnelName).filter(Boolean)),
+          ) as string[];
+          setTunnelRefNames(names);
+        } else setTunnelRefNames(null);
+      })
+      .catch(() => alive && setTunnelRefNames(null));
+    return () => {
+      alive = false;
+    };
   }, [uuid]);
 
   const watchWanIf = Form.useWatch('wanInterface', form);
@@ -123,12 +153,12 @@ const SASEWizard: React.FC = () => {
 
     const initialValues = {
       wanInterface: wanIfObj?.name,
-      wanIpv4: wanIfObj?.ipv4_static,
+      wanIpv4: pickPrimaryIpv4Cidr(wanIfObj?.ipv4_static) || undefined,
       wanIpv6: wanIfObj?.ipv6_static,
       ipsecPublicIp: gateway,
       enableNat: isNatEnabled,
       lanInterface: lanIfObj?.name,
-      lanIpv4: lanIfObj?.ipv4_static,
+      lanIpv4: pickPrimaryIpv4Cidr(lanIfObj?.ipv4_static) || undefined,
       lanIpv6: lanIfObj?.ipv6_static,
     };
 
@@ -246,16 +276,17 @@ const SASEWizard: React.FC = () => {
       message.error('缺少 IBR 的 UUID，无法下发配置');
       return;
     }
+    let tunnelReferenced = Boolean(tunnelRefNames);
+    let refNamesPart = tunnelRefNames?.length
+      ? `引用隧道：${tunnelRefNames.join('、')}`
+      : '当前 IBR 已被 SRv6 隧道引用';
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
-        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
-        message.error(
-          `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
-          8,
-        );
-        return;
+        refNamesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
+        tunnelReferenced = true;
+        setTunnelRefNames(names);
       }
     } catch (e: any) {
       console.warn('SASEWizard: fetchSrv6VrReferences failed:', e);
@@ -263,17 +294,35 @@ const SASEWizard: React.FC = () => {
     try {
       setLoading(true);
       const values = form.getFieldsValue(true);
-      let cfg = buildConfigFromValues(values);
+      const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
+      let cfg: Record<string, unknown>;
+      if (tunnelReferenced) {
+        const patched = applyIpsecPresetWizardReferencedChanges(
+          existing && typeof existing === 'object' ? existing : {},
+          values,
+        );
+        if (patched.blockedReasons?.length) {
+          message.error(formatTunnelRefBlockedMessage(refNamesPart, patched.blockedReasons), 10);
+          return;
+        }
+        if (!patched.changedLabels.length) {
+          message.info(`${TUNNEL_REF_NOOP_TOAST} ${refNamesPart}`, 8);
+          return;
+        }
+        cfg = patched.cfg;
+      } else {
+        cfg = buildConfigFromValues(values);
+      }
       if (uuid) cfg.uuid = uuid;
-      cfg.role = 'SASE'; // 确保 role 存在
+      cfg.role = cfg.role || 'SASE';
 
-      // 1. 同步保存到本地数据库 (包含 ipsec_preset)
       try {
-        const existing = await getVRConfig(uuid);
-        // 合并并排序，确保本地存储也是有序的
-        const newCfg = sortJsonKeys({ ...(existing || {}), ...cfg });
+        const newCfg = tunnelReferenced
+          ? sortJsonKeys(cfg)
+          : sortJsonKeys({ ...(existing || {}), ...cfg });
         await saveVRConfig(uuid, newCfg);
         await setVRRole(uuid, 'SASE');
+        cfg = newCfg;
       } catch (e: any) {
         console.warn('保存到本地数据库失败:', e);
         throw new Error(e?.message || '保存到平台失败，已中止设备下发');
@@ -294,7 +343,7 @@ const SASEWizard: React.FC = () => {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
       
-      message.success('配置已下发到设备');
+      message.success(tunnelReferenced ? TUNNEL_REF_OK_TOAST : '配置已下发到设备');
     } catch (e: any) {
       message.error(e?.message || '下发失败');
     } finally {
@@ -390,12 +439,15 @@ const SASEWizard: React.FC = () => {
                 }
               />
             </Form.Item>
+            {fingerprintLocked ? (
+              <div style={{ color: '#d46b08', fontSize: 12, margin: '-4px 0 8px 0' }}>{tunnelRefLockTip(tunnelRefNames)}</div>
+            ) : null}
             <Form.Item
               name="wanIpv4"
               label="外网 IPv4 (CIDR)"
               rules={[{ pattern: /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/, message: 'IPv4 CIDR 示例：1.2.3.4/24' }]}
             >
-              <Input placeholder="例如：1.2.3.4/24" />
+              <Input placeholder="例如：1.2.3.4/24" disabled={fingerprintLocked} />
             </Form.Item>
             <Form.Item
               name="wanIpv6"
@@ -437,6 +489,7 @@ const SASEWizard: React.FC = () => {
                 placeholder="请选择接口"
                 showSearch
                 allowClear
+                disabled={fingerprintLocked}
                 options={ifaceOptions.map((n) => ({
                   value: n,
                   label: renderIfaceWizardSelectLabel(n, wanIfTrim && n === wanIfTrim ? '外网接口 (WAN)' : undefined),
@@ -453,7 +506,7 @@ const SASEWizard: React.FC = () => {
               label="内网 IPv4 (CIDR)"
               rules={[{ required: true, message: '请输入内网 IPv4' }, { pattern: /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/, message: 'IPv4 CIDR 示例：192.168.1.1/24' }]}
             >
-              <Input placeholder="例如：192.168.1.1/24" />
+              <Input placeholder="例如：192.168.1.1/24" disabled={fingerprintLocked} />
             </Form.Item>
             <Form.Item
               name="lanIpv6"
@@ -566,7 +619,9 @@ const SASEWizard: React.FC = () => {
       >
         <div style={{ color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
-            本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。
+            {fingerprintLocked
+              ? `${TUNNEL_REF_CONFIRM_LEAD}WAN IPv4、LAN 口、LAN IPv4 已锁定。`
+              : '本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。'}
           </div>
           <div style={{ marginBottom: 12 }}>
             影响范围包括但不限于：接口与子接口、IPv4/IPv6 地址与状态、静态路由、NAT 设置、BGP/VRF、SRv6 参数及可能相关的策略项。已有的手工修改可能被覆盖。

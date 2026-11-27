@@ -125,6 +125,113 @@ describe('srv6.vrLock', () => {
     });
   });
 
+  describe('assertSrv6VrConfigUpsertAllowed · Hub bound LAN ifName/IPv4', () => {
+    const hubWithLan = (lanIf = 'ge2', lanIp = '23.1.1.2/24', extra?: Record<string, unknown>) => {
+      const cfg: Record<string, unknown> = {
+        role: 'HUB_PE',
+        segment_routing_srv6: { prefix: '2001:db8::/64' },
+        interfaces_GigabitEthernet: [
+          { name: 'ge0', ipv6_static: '2001::hub0/64' },
+          { name: lanIf, ipv4_static: lanIp, vrf: 10001 },
+          { name: 'ge3', ipv4_static: '26.1.1.2/24', vrf: 10002 },
+        ],
+        pe: {
+          publicConfig: { wanName: 'ge0' },
+          lanConfig: [
+            { vrf: 10001, lanName: lanIf, ipv4: lanIp },
+            { vrf: 10002, lanName: 'ge3', ipv4: '26.1.1.2/24' },
+          ],
+        },
+        ...extra,
+      };
+      return JSON.stringify(cfg);
+    };
+
+    const hubLanTunnel = {
+      id: 't-hub-lan',
+      name: 'Hub-LAN',
+      tunnelTopology: 'H',
+      hubPeSlot: 'peB',
+      peA: 'spoke-1',
+      peB: 'hub-1',
+      peBInnerIf: 'ge2',
+      hubBindings: {
+        hubPeUuid: 'hub-1',
+        spokePeUuid: 'spoke-1',
+        hubPeSlot: 'peB',
+        wanIf: 'ge0',
+        lanIf: 'ge2',
+        peerPublicNeighbor: '203::spoke/64',
+      },
+      endpointFingerprint: {
+        peB: computePeFingerprint(JSON.parse(hubWithLan()) as Record<string, unknown>, 'ge2', {
+          wanIf: 'ge0',
+          peerPublicNeighbor: '203::spoke/64',
+        }),
+      },
+    } as unknown as SRv6Tunnel;
+
+    it('allows changing unbound extra LAN IPv4', async () => {
+      findSrv6TunnelsReferencingVr.mockResolvedValue([
+        { tunnelId: 't-hub-lan', tunnelName: 'Hub-LAN', slot: 'peB' },
+      ]);
+      mockTunnelFindOne(hubLanTunnel);
+
+      const cfg = JSON.parse(hubWithLan()) as Record<string, unknown>;
+      const ifaces = cfg.interfaces_GigabitEthernet as Record<string, unknown>[];
+      ifaces[2] = { ...ifaces[2], ipv4_static: '26.1.1.99/24' };
+      const pe = cfg.pe as { lanConfig: Record<string, unknown>[] };
+      pe.lanConfig[1] = { ...pe.lanConfig[1], ipv4: '26.1.1.99/24' };
+
+      await expect(
+        assertSrv6VrConfigUpsertAllowed('hub-1', JSON.stringify(cfg)),
+      ).resolves.toBeUndefined();
+    });
+
+    it('rejects changing bound Hub LAN IPv4 (409)', async () => {
+      findSrv6TunnelsReferencingVr.mockResolvedValue([
+        { tunnelId: 't-hub-lan', tunnelName: 'Hub-LAN', slot: 'peB' },
+      ]);
+      mockTunnelFindOne(hubLanTunnel);
+
+      await expect(
+        assertSrv6VrConfigUpsertAllowed('hub-1', hubWithLan('ge2', '23.1.1.99/24')),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('rejects changing bound Hub LAN ifName (409)', async () => {
+      findSrv6TunnelsReferencingVr.mockResolvedValue([
+        { tunnelId: 't-hub-lan', tunnelName: 'Hub-LAN', slot: 'peB' },
+      ]);
+      mockTunnelFindOne(hubLanTunnel);
+
+      const cfg = JSON.parse(hubWithLan()) as Record<string, unknown>;
+      const pe = cfg.pe as { lanConfig: Record<string, unknown>[] };
+      pe.lanConfig[0] = { ...pe.lanConfig[0], lanName: 'ge4', ipv4: '23.1.1.2/24' };
+      const ifaces = cfg.interfaces_GigabitEthernet as Record<string, unknown>[];
+      ifaces.push({ name: 'ge4', ipv4_static: '23.1.1.2/24', vrf: 10001 });
+
+      await expect(
+        assertSrv6VrConfigUpsertAllowed('hub-1', JSON.stringify(cfg)),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('rejects when only pe.lanConfig IPv4 drifts while iface stays (409)', async () => {
+      findSrv6TunnelsReferencingVr.mockResolvedValue([
+        { tunnelId: 't-hub-lan', tunnelName: 'Hub-LAN', slot: 'peB' },
+      ]);
+      mockTunnelFindOne(hubLanTunnel);
+
+      const cfg = JSON.parse(hubWithLan()) as Record<string, unknown>;
+      const pe = cfg.pe as { lanConfig: Record<string, unknown>[] };
+      pe.lanConfig[0] = { ...pe.lanConfig[0], ipv4: '23.1.1.99/24' };
+
+      await expect(
+        assertSrv6VrConfigUpsertAllowed('hub-1', JSON.stringify(cfg)),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+  });
+
   describe('assertSrv6VrConfigUpsertAllowed · Spoke (R6)', () => {
     const spokeTunnel = {
       id: 't-spoke',
