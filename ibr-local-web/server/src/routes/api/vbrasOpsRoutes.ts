@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { runHostCmd } from './helpers.js';
+import { shouldReapplyLastApplyIps } from '../../services/network/nicInitClean.js';
 import { applyNetConfig } from '../../services/network/netApply.js';
 import { isForwardingMock, runClishArgv } from '../../services/forwarding/clishCsm.js';
 import { getPaths, loadState, runVbrasCli, startVbras, stopVbras, waitForVbrasCliSock, type Paths } from '../../vrwizard.js';
@@ -15,7 +16,6 @@ export type DevicePingStats = {
 /** 解析 clish `do ping` / vbras ping 回显统计（勿与宿主 Linux `ping` 混淆）。 */
 export function parseDevicePingStats(raw: string): DevicePingStats {
 	const t = String(raw || '');
-	// clish / iputils 风格：3 packets transmitted, 3 received, 0% packet loss
 	const tx = /(\d+)\s+packets?\s+transmitted.*?(\d+)\s+received(?:.*?(\d+(?:\.\d+)?)\s*%\s*packet\s*loss)?/i.exec(t);
 	if (tx) {
 		return {
@@ -24,7 +24,6 @@ export function parseDevicePingStats(raw: string): DevicePingStats {
 			packetLoss: tx[3] != null ? `${tx[3]}%` : null,
 		};
 	}
-	// vbras 风格：Statistics: 3 sent, 3 received, 0% packet loss
 	const stats = /statistics:\s*(\d+)\s*sent,\s*(\d+)\s*received(?:.*?(\d+(?:\.\d+)?)\s*%\s*packet\s*loss)?/i.exec(t);
 	if (stats) {
 		return {
@@ -53,7 +52,6 @@ export function isDevicePingOk(raw: string): boolean {
 	if (/100%\s*packet\s*loss/i.test(t)) return false;
 	if (/network is unreachable/i.test(t)) return false;
 	if (/unknown host/i.test(t)) return false;
-	// clish `do ping` 常前台挂起，超时打断时可能只有 icmp 回显、没有 Statistics
 	if (/\bbytes from\b/i.test(t)) return true;
 
 	const stats = parseDevicePingStats(t);
@@ -67,11 +65,6 @@ export function isDevicePingOk(raw: string): boolean {
 	}
 	return false;
 }
-
-/** @deprecated 兼容旧名 */
-export const parseVbrasPingStats = parseDevicePingStats;
-/** @deprecated 兼容旧名 */
-export const isVbrasPingOk = isDevicePingOk;
 
 export type ClishDoPingResult = {
 	ok: boolean;
@@ -199,14 +192,20 @@ export function createVbrasOpsRouter(): Router {
 			try {
 				const state = loadState(paths);
 				const lastApply = state.last_apply && typeof state.last_apply === 'object' ? (state.last_apply as any) : null;
-				if (lastApply) {
+				if (shouldReapplyLastApplyIps(lastApply)) {
 					logs.push('尝试恢复上次网络配置...');
 					reapply = await applyNetConfig({
 						scope: 'all',
 						public_ip: lastApply.public_ip,
-						public_gw: lastApply.public_gw ?? null,
+						public_ipv6: lastApply.public_ipv6,
 						private_ip: lastApply.private_ip,
+						private_ipv6: lastApply.private_ipv6,
+						...(Object.prototype.hasOwnProperty.call(lastApply, 'public_gw')
+							? { public_gw: lastApply.public_gw ?? null }
+							: {}),
 					});
+				} else {
+					logs.push('跳过恢复 last_apply（无 WAN/LAN CIDR：初始化后不再灌回旧地址）');
 				}
 			} catch (e) {
 				logs.push(`恢复网络配置失败: ${e instanceof Error ? e.message : String(e)}`);

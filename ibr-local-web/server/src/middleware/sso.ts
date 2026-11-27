@@ -67,6 +67,7 @@ export async function ssoAuthMiddleware(req: AuthedRequest, res: Response, next:
 	const audience = process.env.SSO_AUDIENCE;
 	const jwksUri = process.env.SSO_JWKS_URI;
 	const publicKeyPem = process.env.SSO_PUBLIC_KEY_PEM?.replace(/\\n/g, '\n');
+	const canVerify = Boolean(jwksUri || publicKeyPem);
 
 	if (!token) {
 		if (process.env.NODE_ENV !== 'production') {

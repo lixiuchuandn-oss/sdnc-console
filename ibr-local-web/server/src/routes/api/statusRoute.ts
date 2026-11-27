@@ -2,8 +2,9 @@ import type { Router } from 'express';
 import os from 'node:os';
 import { fetchVbrasInterfaceTelemetry, lookupVbrasTeleIp } from '../../nicRolesSnapshot.js';
 import { serviceReachabilityForStatus } from '../../lib/serviceReachability.js';
-import { readComputeTowerBase, readSdncConsoleBase, readSdncCsmctlAddress } from '../../lib/sdncServiceConfig.js';
+import { readSdncConsoleBase, readSdncCsmctlAddress } from '../../lib/sdncServiceConfig.js';
 import { ensureNicRolesSnapshotFresh, resolveOsNicAttachPci } from '../../services/network/netApply.js';
+import { ensureMgmtPciInState, readNicIdentity } from '../../services/network/nicIdentity.js';
 import {
 	EMPTY_SYSTEM_STATS,
 	readOsPrettyName,
@@ -30,6 +31,7 @@ import {
 	readRegisterVrName,
 	readVrcontrolString,
 	runVbrasCli,
+	saveState,
 	speedMbpsToGrade,
 	type SystemStats,
 } from '../../vrwizard.js';
@@ -44,19 +46,21 @@ export function registerStatusRoute(r: Router): void {
 		const paths = getPaths();
 		const state = loadState(paths);
 		const initMode = normalizeInitMode(state.init_mode);
-		const sdnc_console_base = readSdncConsoleBase(paths);
 		const sdnc_csmctl_address = readSdncCsmctlAddress(paths);
-		const compute_tower_base = readComputeTowerBase(paths);
-		/** @deprecated 与 sdnc_csmctl_address 相同，兼容 agent manageip 语义 */
 		const sdwan_manageip = sdnc_csmctl_address;
-		/** @deprecated 与 compute_tower_base 相同；勿再当作 SDN Console 地址 */
-		const tower_base = compute_tower_base;
+		const sdnc_console_base = readSdncConsoleBase(paths);
 		const ai_soc_base = readVrcontrolString(paths, 'ai_soc_base') || null;
 		let rolesConf = readNicRolesConf(paths);
 		const pciNicsDetailed = listPciNicsDetailed({ rolesConf });
 		const pcis = pciNicsDetailed.length > 0 ? pciNicsDetailed.map((x) => x.pci) : listAvailablePciNics({ rolesConf });
 		const attachPci = resolveOsNicAttachPci(state, rolesConf);
-		const mgmtPci = pcis.length > 0 ? pcis[0] : null;
+		const stateRec = state as Record<string, unknown>;
+		const { filled: mgmtFilled } = ensureMgmtPciInState(stateRec, pciNicsDetailed);
+		if (mgmtFilled) saveState(paths, stateRec);
+		const identity = readNicIdentity(stateRec);
+		const mgmtPci = identity.mgmtPci;
+		const wanPci = identity.wanPci;
+		const lanPci = identity.lanPci;
 		const nicsInitialized = computeNicsInitialized(state);
 		const vrName = readRegisterVrName(paths);
 
@@ -157,7 +161,7 @@ export function registerStatusRoute(r: Router): void {
 				displayName = normalizeVppCliIfname(String(vInfo.name ?? ''));
 				ip = String(vInfo.ip ?? '-') || '-';
 				const liveIp = lookupVbrasTeleIp(tele, displayName);
-				if (liveIp) ip = liveIp;
+				if (liveIp != null) ip = liveIp;
 				gateway = typeof vInfo.gateway === 'string' ? vInfo.gateway : null;
 			} else {
 				source = 'os';
@@ -289,12 +293,33 @@ export function registerStatusRoute(r: Router): void {
 			};
 		};
 
-		const idxMap = initMode === 'static' ? { mgmt: 0, wan: 1, lan: 2 } : { mgmt: 0, wan: 0, lan: 1 };
 		const net_overview: Record<string, unknown> = {};
+		const overviewByRole: Record<'mgmt' | 'wan' | 'lan', string | null> = {
+			mgmt: mgmtPci,
+			wan: wanPci,
+			lan: lanPci,
+		};
 		for (const k of ['mgmt', 'wan', 'lan'] as const) {
-			const idx = idxMap[k];
-			if (idx >= pcis.length) continue;
-			const pci = pcis[idx]!;
+			const pci = overviewByRole[k];
+			if (!pci) {
+				net_overview[k] = {
+					role: k,
+					attached: false,
+					source: 'os',
+					pci: null,
+					name: '-',
+					ip: '-',
+					gateway: null,
+					rate: '-',
+					display: '未初始化身份',
+					link: null,
+					os_ifname: null,
+					nic_os: null,
+					nic_vbras: null,
+					identity_missing: true,
+				};
+				continue;
+			}
 			net_overview[k] = buildNetEntry(pci, k, vbrasIfTele);
 		}
 		const wanEntry = net_overview.wan as any;
@@ -323,6 +348,8 @@ export function registerStatusRoute(r: Router): void {
 				describePciNicForStatus,
 			),
 			mgmt_pci: mgmtPci,
+			wan_pci: wanPci,
+			lan_pci: lanPci,
 			os_nic_attach_pci: Array.isArray(state.os_nic_attach_pci) ? state.os_nic_attach_pci : null,
 			nics_initialized: nicsInitialized,
 			nic_roles: rolesConf,
@@ -332,9 +359,9 @@ export function registerStatusRoute(r: Router): void {
 			extra_lans,
 			sdnc_console_base,
 			sdnc_csmctl_address,
-			compute_tower_base,
 			sdwan_manageip,
-			tower_base,
+			tower_base: null,
+			compute_tower_base: null,
 			ai_soc_base,
 			service_reachability,
 			version,

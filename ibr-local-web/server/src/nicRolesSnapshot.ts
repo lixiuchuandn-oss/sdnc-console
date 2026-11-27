@@ -9,7 +9,8 @@ import { execFileSync } from 'node:child_process';
 import { normalizeVppCliIfname, pciToVppCliIfname } from './pciVpp.js';
 import { runVbrasCli, type VbrasCliPaths } from './vbrasCli.js';
 
-import type { InitMode, NicRole, PciNic } from './vrwizard.js';
+import type { InitMode, PciNic } from './vrwizard.js';
+import { type NicIdentity, roleForPci } from './services/network/nicIdentity.js';
 
 function exists(p: string): boolean {
 	try {
@@ -72,7 +73,10 @@ function findNicRoleRowByPci(roles: unknown[], pci: string): Record<string, unkn
 	return null;
 }
 
-/** 从 vbras CLI 遥测 Map 查接口 IPv4。 */
+/**
+ * 从 vbras CLI 遥测查接口地址。
+ * 口已出现且无 L3 时返回 '-'（权威空），与「遥测未覆盖该口」的 null 区分，避免仪表板沿用快照旧 IP。
+ */
 export function lookupVbrasTeleIp(
 	tele: Map<string, { state: string; ip: string }> | null | undefined,
 	ifname: string,
@@ -81,7 +85,9 @@ export function lookupVbrasTeleIp(
 	const keys = [normalizeVppCliIfname(ifname), ifname.trim()].filter((k, i, a) => a.indexOf(k) === i);
 	for (const k of keys) {
 		const t = tele.get(k);
-		if (t?.ip && t.ip !== '-') return t.ip;
+		if (!t) continue;
+		const ip = typeof t.ip === 'string' ? t.ip.trim() : '';
+		return ip && ip !== '-' ? ip : '-';
 	}
 	return null;
 }
@@ -100,7 +106,10 @@ export function nicRolesVbrasIpsStale(
 		const name = typeof r.vbras?.name === 'string' ? r.vbras.name : '';
 		const confIp = typeof r.vbras?.ip === 'string' ? r.vbras.ip.trim() : '';
 		const liveIp = lookupVbrasTeleIp(tele, name);
-		if (liveIp && liveIp !== confIp) return true;
+		if (liveIp == null) continue;
+		const liveNorm = liveIp === '-' ? '-' : liveIp;
+		const confNorm = confIp && confIp !== '-' ? confIp : '-';
+		if (liveNorm !== confNorm) return true;
 	}
 	return false;
 }
@@ -277,15 +286,36 @@ export function parseVbrasShowInterfaceAddress(text: string): Map<string, { stat
 			continue;
 		}
 		if (current) {
-			const mL3 = /\bL3\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/\d+)/.exec(line);
-			if (mL3) {
-				const addr = mL3[1]!;
-				const rec = result.get(current)!;
+			const rec = result.get(current)!;
+			const mV4 = /\bL3\s+(\d+\.\d+\.\d+\.\d+\/\d+)/.exec(line);
+			if (mV4) {
+				const addr = mV4[1]!;
+				if (!rec.ips.includes(addr)) rec.ips.push(addr);
+				continue;
+			}
+			const mV6 = /\bL3\s+([0-9a-fA-F:]+\/\d+)/.exec(line);
+			if (mV6 && mV6[1]!.includes(':')) {
+				const addr = mV6[1]!;
 				if (!rec.ips.includes(addr)) rec.ips.push(addr);
 			}
 		}
 	}
 	return result;
+}
+
+/** 解析 `show tap-inject`：`GigabitEthernet0/7/0 -> vsw2`。 */
+export function parseVbrasTapInject(text: string): Map<string, string> {
+	const out = new Map<string, string>();
+	for (const raw of text.split(/\r?\n/)) {
+		const m = /^(\S+)\s*->\s*(\S+)\s*$/.exec(raw.trim());
+		if (!m) continue;
+		const from = m[1]!;
+		const to = m[2]!;
+		if (!from || !to) continue;
+		out.set(normalizeVppCliIfname(from), to);
+		out.set(from, to);
+	}
+	return out;
 }
 
 /** 将 VPP `show hardware-interfaces` 中的 PCI 地址规范为与 sysfs / nic_roles 一致的 `dddd:bb:dd.f` 形式。 */
@@ -312,8 +342,11 @@ function extractVppHardwareBlock(ifName: string, adminLink: string, block: strin
 		const mtuN = Number.parseInt(car[4]!, 10);
 		if (Number.isFinite(mtuN)) o.mtu = mtuN;
 	}
-	const pciL = /\baddress\s+([0-9a-fA-F:.]+)/i.exec(block);
-	if (pciL) o.pci_address = normalizePciBdfForMatch(pciL[1]!);
+	// 禁止用通用 `\baddress`：会先命中 `Ethernet address <MAC>`，导致 hwPciSet 错乱、in_dataplane 假阴性。
+	const pciLine =
+		/\bpci:\s*device\s+[0-9a-fA-F:]+\s+subsystem\s+[0-9a-fA-F:]+\s+address\s+([0-9a-fA-F:.]+)/i.exec(block) ||
+		/\baddress\s+([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.\d+)/i.exec(block);
+	if (pciLine) o.pci_address = normalizePciBdfForMatch(pciLine[1]!);
 	const pdev = /pci:\s*device\s+([0-9a-fA-F:]+)\s+subsystem\s+([0-9a-fA-F:]+)/i.exec(block);
 	if (pdev) {
 		o.pci_device_id = pdev[1]!.toLowerCase();
@@ -510,9 +543,10 @@ function applyVbrasTelemetryToRow(
 	if (!t) return vbras;
 	const next: Record<string, unknown> = { ...vbras };
 	if (t.state) next.state = t.state;
+	// 遥测已覆盖该口时：无 L3 必须写回 '-'，否则会残留旧 IP（如 LAN 误显示与 WAN 相同地址）。
 	if (typeof t.ip === 'string') {
 		const ip = t.ip.trim();
-		if (ip && ip !== '-') next.ip = ip;
+		next.ip = ip && ip !== '-' ? ip : '-';
 	}
 	return next;
 }
@@ -580,6 +614,8 @@ export async function buildNicRolesSnapshot(params: {
 	mode: InitMode;
 	pcis: string[];
 	attachPci: string[];
+	/** 身份权威；有则按 identity 投影 role，禁止 PCI 下标。 */
+	identity?: NicIdentity | null;
 	existing?: JsonObject | null;
 	pciDetails?: PciNic[] | null;
 	/** 若传入，则在生成快照前拉取 vbras CLI 遥测并合并（`show interface address` + `show hardware-interface(s)`）。 */
@@ -592,7 +628,8 @@ export async function buildNicRolesSnapshot(params: {
 		if (r[0].status === 'fulfilled') tele = r[0].value;
 		if (r[1].status === 'fulfilled') hwMaps = r[1].value;
 	}
-	const { mode, pcis, attachPci, existing, pciDetails } = params;
+	const { pcis, attachPci, existing, pciDetails, identity } = params;
+	const id: NicIdentity = identity ?? { mgmtPci: null, wanPci: null, lanPci: null };
 	const osIpv4ByIf = readOsIpv4ByIf();
 	const existingRoles = existing?.roles;
 	const existingByPci = new Map<string, Record<string, unknown>>();
@@ -610,22 +647,10 @@ export async function buildNicRolesSnapshot(params: {
 		byPciDetail.set(d.pci, d);
 	}
 
-	const roleForIndex = (idx: number): NicRole | null => {
-		if (mode === 'static') {
-			if (idx === 0) return 'mgmt';
-			if (idx === 1) return 'wan';
-			if (idx === 2) return 'lan';
-			return null;
-		}
-		if (idx === 0) return 'wan';
-		if (idx === 1) return 'lan';
-		return null;
-	};
-
 	const roles: Record<string, unknown>[] = [];
 	for (let i = 0; i < pcis.length; i++) {
-		const pci = pcis[i];
-		const role = roleForIndex(i);
+		const pci = pcis[i]!;
+		const role = roleForPci(pci, id);
 		const old = existingByPci.get(pci);
 		const attached = attachPci.includes(pci);
 		const detail = byPciDetail.get(pci);

@@ -1,12 +1,13 @@
 import express from 'express';
 import { invalidateManagementIpReportCache, kickManagementIpReport } from '../lib/managementIpReporter.js';
+import { readRegisterVrIdentity } from '../lib/registerVrIdentity.js';
 import {
 	clearAgentRegistrationFinish,
 	isAgentRegistrationOnline,
 	pokeMonitoringAgent,
 	pokeVrctlAgent,
 } from '../services/forwarding/forwardingExtended.js';
-import { getPaths, readVrUuid } from '../vrwizard.js';
+import { getPaths } from '../vrwizard.js';
 
 function northKeyAccepted(req: express.Request): boolean {
 	const expected = process.env.SDNC_NORTH_API_KEY?.trim();
@@ -33,7 +34,7 @@ export function createPublicRegistrationRouter() {
 			return;
 		}
 		const paths = getPaths();
-		const local = readVrUuid(paths).trim();
+		const local = readRegisterVrIdentity(paths).uuid.trim();
 		if (!local || local !== uuid) {
 			res.status(409).json({
 				ok: false,

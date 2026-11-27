@@ -5,11 +5,137 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Paths } from '../../vrwizard.js';
-import { getStructuredAgentConfig } from './agentConfigParse.js';
+import { getStructuredAgentConfig, normalizeConfigRoot } from './agentConfigParse.js';
 import { isForwardingMock, runClishSingleCommand, runClishStdin, runClishArgv } from './clishCsm.js';
 
-function agentBaseDir(paths: Paths): string {
+export function agentBaseDir(paths: Paths): string {
 	return paths.base ? path.join(paths.base, 'rhos', 'etc', 'agent') : '/rhos/etc/agent';
+}
+
+/** agent 本机校验和：与 monitoring.agent 的 CONFIGURATION_CHECKSUM / PERSISTENT_CHECKSUM 对齐 */
+export function agentChecksumPaths(paths: Paths): { live: string; persistent: string } {
+	return {
+		live: path.join(agentBaseDir(paths), '.checksum'),
+		persistent: paths.base
+			? path.join(paths.base, 'usr', 'local', 'src', 'vrconf', 'checksum')
+			: '/usr/local/src/vrconf/checksum',
+	};
+}
+
+export type RequestControllerSyncResult =
+	| { ok: true; nics_initialized: true; registration_online: true; cleared: string[] }
+	| { ok: false; error: string; nics_initialized?: boolean; registration_online?: boolean };
+
+export type ClearAgentChecksumResult =
+	| { ok: true; cleared: string[] }
+	| { ok: false; error: string; cleared: string[] };
+
+export type ClearAgentDownloadCacheResult =
+	| { ok: true; removed: string[] }
+	| { ok: false; error: string; removed: string[] };
+
+/**
+ * 清空 agent checksum。
+ * 顺序：先把 live 截断为空，再删 persistent。
+ * 进行中的 download 成功路径会 `cp live → persistent`；若先删 persistent 再清 live，
+ * 可能把旧 live 写回 persistent，agent 重启后又对齐远端、跳过 first。
+ * 两处都必须清：只清 live 而留下 persistent，agent 启动会把旧值拷回 live。
+ */
+export function clearAgentChecksum(paths: Paths): ClearAgentChecksumResult {
+	const { live, persistent } = agentChecksumPaths(paths);
+	const cleared: string[] = [];
+	try {
+		fs.mkdirSync(path.dirname(live), { recursive: true });
+		fs.writeFileSync(live, '', 'utf8');
+		cleared.push(live);
+		if (fs.existsSync(persistent)) {
+			fs.unlinkSync(persistent);
+			cleared.push(persistent);
+		}
+		return { ok: true, cleared };
+	} catch (e) {
+		return {
+			ok: false,
+			error: `清除校验和失败: ${e instanceof Error ? e.message : String(e)}`,
+			cleared,
+		};
+	}
+}
+
+export function agentDownloadDir(paths: Paths): string {
+	return path.join(agentBaseDir(paths), 'download');
+}
+
+/**
+ * 清空 agent download 目录下普通文件（保留目录本身）。
+ * 出厂用：扫掉旧 uuid 的 bak/临时包，重注册后可走干净 first。
+ * 「从控制器同步」不要走这里——只清 checksum 即可，由下一轮 download 覆盖当前 uuid 的 bak。
+ */
+export function clearAgentDownloadCache(paths: Paths): ClearAgentDownloadCacheResult {
+	const dir = agentDownloadDir(paths);
+	const removed: string[] = [];
+	try {
+		if (!fs.existsSync(dir)) {
+			fs.mkdirSync(dir, { recursive: true });
+			return { ok: true, removed };
+		}
+		for (const name of fs.readdirSync(dir)) {
+			const full = path.join(dir, name);
+			let st: fs.Stats;
+			try {
+				st = fs.statSync(full);
+			} catch {
+				continue;
+			}
+			if (!st.isFile()) continue;
+			fs.unlinkSync(full);
+			removed.push(full);
+		}
+		return { ok: true, removed };
+	} catch (e) {
+		return {
+			ok: false,
+			error: `清除 download 缓存失败: ${e instanceof Error ? e.message : String(e)}`,
+			removed,
+		};
+	}
+}
+
+/**
+ * 本机请求按 CSMCTL 当前 VR2 落地：清空 checksum，下一轮 download 会拉取。
+ * 需网卡已初始化，且本地注册完成（ONLINE）。
+ */
+export function requestControllerConfigSync(
+	paths: Paths,
+	state: { os_nic_attach_pci?: unknown },
+): RequestControllerSyncResult {
+	if (!Array.isArray(state.os_nic_attach_pci) || state.os_nic_attach_pci.length === 0) {
+		return { ok: false, error: '请先完成网卡初始化', nics_initialized: false };
+	}
+	const registrationOnline = fs.existsSync(path.join(agentBaseDir(paths), '.registration_finish'));
+	if (!registrationOnline) {
+		return {
+			ok: false,
+			error: '设备未注册（非 ONLINE），无法从控制器同步',
+			nics_initialized: true,
+			registration_online: false,
+		};
+	}
+	const clearedResult = clearAgentChecksum(paths);
+	if (!clearedResult.ok) {
+		return {
+			ok: false,
+			error: clearedResult.error,
+			nics_initialized: true,
+			registration_online: true,
+		};
+	}
+	return {
+		ok: true,
+		nics_initialized: true,
+		registration_online: true,
+		cleared: clearedResult.cleared,
+	};
 }
 
 export function agentRegistrationFinishPath(paths: Paths): string {
@@ -20,7 +146,10 @@ export function isAgentRegistrationOnline(paths: Paths): boolean {
 	return fs.existsSync(agentRegistrationFinishPath(paths));
 }
 
-/** 身份载荷变化后清掉 ONLINE 标记，agent 主循环会再 POST /VR1/register。 */
+/**
+ * 身份载荷变化后清掉 ONLINE 标记，agent 主循环会再 POST /VR1/register。
+ * uuid 不变时 CSMCTL 按原记录 update，不会新建实例。
+ */
 export function clearAgentRegistrationFinish(paths: Paths): boolean {
 	const finish = agentRegistrationFinishPath(paths);
 	if (!fs.existsSync(finish)) return false;
@@ -44,7 +173,7 @@ function pokeByPattern(pattern: string): boolean {
 				process.kill(Number(pid), 'SIGUSR1');
 				poked = true;
 			} catch {
-				/* ignore */
+				/* 进程已退出则忽略 */
 			}
 		}
 		return poked;
@@ -53,10 +182,12 @@ function pokeByPattern(pattern: string): boolean {
 	}
 }
 
+/** 向 vrctl.agent 发 SIGUSR1，打断 auth/register/主循环等待，尽快发现身份文件变化。 */
 export function pokeVrctlAgent(): boolean {
 	return pokeByPattern('^/bin/bash /rhos/etc/agent/vrctl\\.agent');
 }
 
+/** send/download 进程在 sleep 上守着 USR1；清 finish 或清空 uuid 后叫醒，避免继续用内存里的旧 uuid 报 VR3。 */
 export function pokeMonitoringAgent(): boolean {
 	return pokeByPattern('/rhos/etc/agent/monitoring\\.agent');
 }
@@ -95,137 +226,33 @@ function readNetjsonSnapshot(paths: Paths): Record<string, unknown> | null {
 	}
 }
 
-/** 单条 BGP summary 邻居行（含所属 VRF / 地址族段） */
-export type BgpNeighborRow = {
-	id: string;
-	neighbor: string;
-	v: string;
-	as: string;
-	msg_rcvd: string;
-	msg_sent: string;
-	tbl_ver: string;
-	in_q: string;
-	out_q: string;
-	up_down: string;
-	/** 非 Established 时为 Idle/Active 等；已建立时常为 Established */
-	state: string;
-	pfx_rcd: string;
-	pfx_snt: string;
-	desc: string;
-	vrf: string;
-	afi: string;
-	section: string;
-};
-
-const NEIGHBOR_ADDR_RE = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f:]+)$/i;
-const SECTION_RE =
-	/^(IPv[46]\s+(?:Unicast|VPN|Multicast|Labeled-Unicast)\s+Summary)\s+\(VRF\s+([^)]+)\):\s*$/i;
-
-/**
- * 解析 FRR/clish `show bgp summary` 多段输出。
- * 段标题例：`IPv4 Unicast Summary (VRF vrf7777):` / `IPv4 VPN Summary (VRF default):`
- */
-export function parseBgpSummaryNeighbors(raw: string): BgpNeighborRow[] {
-	const neighbors: BgpNeighborRow[] = [];
-	let vrf = 'default';
-	let afi = 'ipv4-unicast';
-	let section = 'IPv4 Unicast Summary (VRF default)';
-
-	for (const line of raw.split(/\r?\n/)) {
-		const t = line.trim();
-		if (!t) continue;
-
-		const sec = SECTION_RE.exec(t);
-		if (sec) {
-			const title = sec[1]!.replace(/\s+/g, ' ');
-			vrf = (sec[2] || 'default').trim();
-			const lower = title.toLowerCase();
-			if (lower.includes('vpn')) afi = lower.startsWith('ipv6') ? 'ipv6-vpn' : 'ipv4-vpn';
-			else if (lower.includes('multicast')) afi = lower.startsWith('ipv6') ? 'ipv6-multicast' : 'ipv4-multicast';
-			else if (lower.includes('labeled')) afi = lower.startsWith('ipv6') ? 'ipv6-labeled' : 'ipv4-labeled';
-			else afi = lower.startsWith('ipv6') ? 'ipv6-unicast' : 'ipv4-unicast';
-			section = `${title} (VRF ${vrf})`;
-			continue;
-		}
-
-		if (/^Neighbor\b/i.test(t) || /^BGP\b/i.test(t) || /^Total number of neighbors/i.test(t)) continue;
-		if (/^RIB entries\b/i.test(t) || /^Peers\b/i.test(t) || /^BGP table version\b/i.test(t)) continue;
-
-		const parts = t.split(/\s+/);
-		if (parts.length < 10 || !NEIGHBOR_ADDR_RE.test(parts[0]!)) continue;
-
-		const neighbor = parts[0]!;
-		const col9 = parts[9] ?? '';
-		const numericPfx = /^\d+$/.test(col9);
-		const state = numericPfx ? 'Established' : col9;
-		const pfx_rcd = numericPfx ? col9 : '';
-		const pfx_snt = numericPfx ? (parts[10] ?? '') : (parts[10] ?? '');
-		const desc = numericPfx ? (parts[11] ?? '') : (parts.slice(11).join(' ') || parts[11] || '');
-
-		neighbors.push({
-			id: `${vrf}|${afi}|${neighbor}`,
-			neighbor,
-			v: parts[1] ?? '',
-			as: parts[2] ?? '',
-			msg_rcvd: parts[3] ?? '',
-			msg_sent: parts[4] ?? '',
-			tbl_ver: parts[5] ?? '',
-			in_q: parts[6] ?? '',
-			out_q: parts[7] ?? '',
-			up_down: parts[8] ?? '',
-			state,
-			pfx_rcd,
-			pfx_snt,
-			desc,
-			vrf,
-			afi,
-			section,
-		});
-	}
-	return neighbors;
-}
-
-const BGP_SUMMARY_MOCK_RAW = `IPv4 Unicast Summary (VRF vrf7777):
-BGP router identifier 102.1.1.33, local AS number 106 vrf-id 25
-BGP table version 40
-RIB entries 7, using 672 bytes of memory
-Peers 1, using 20 KiB of memory
-
-Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-102.1.1.22      4        103      4370      4370       40    0    0 3d00h27m            2        4 N/A
-
-Total number of neighbors 1
-
-IPv4 Unicast Summary (VRF default):
-BGP router identifier 203.100.100.33, local AS number 430 vrf-id 0
-BGP table version 0
-RIB entries 0, using 0 bytes of memory
-Peers 1, using 20 KiB of memory
-
-Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-203::22         4        429      3653      3672        0    0    0 04:33:21            0        0 N/A
-
-Total number of neighbors 1
-
-IPv4 VPN Summary (VRF default):
-BGP router identifier 203.100.100.33, local AS number 430 vrf-id 0
-BGP table version 0
-RIB entries 7, using 672 bytes of memory
-Peers 1, using 20 KiB of memory
-
-Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-203::22         4        429      3653      3672       38    0    0 04:33:21            6        8 N/A
-
-Total number of neighbors 1
-`;
-
-export async function getBgpSummary(paths: Paths): Promise<{ raw: string; neighbors: BgpNeighborRow[] }> {
+export async function getBgpSummary(paths: Paths): Promise<{ raw: string; neighbors: Array<Record<string, string>> }> {
 	if (isForwardingMock(paths)) {
-		return { raw: BGP_SUMMARY_MOCK_RAW, neighbors: parseBgpSummaryNeighbors(BGP_SUMMARY_MOCK_RAW) };
+		const raw = `BGP router identifier 192.168.1.1, local AS number 65001
+Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+10.0.0.2        4      65002      10      12        0    0    0 00:05:00        5`;
+		return { raw, neighbors: [{ neighbor: '10.0.0.2', as: '65002', state: 'Established' }] };
 	}
 	const res = await runClishArgv(['-c', 'do show bgp summary'], paths, { timeoutMs: 10000 });
 	if (!res.ok) throw new Error(res.error);
-	return { raw: res.output, neighbors: parseBgpSummaryNeighbors(res.output) };
+	const neighbors: Array<Record<string, string>> = [];
+	for (const line of res.output.split('\n')) {
+		const t = line.trim();
+		if (!t || t.startsWith('Neighbor') || t.startsWith('BGP')) continue;
+		const parts = t.split(/\s+/);
+		if (parts.length >= 10 && /^\d+\.\d+\.\d+\.\d+$|^[0-9a-f:]+$/i.test(parts[0]!)) {
+			neighbors.push({
+				neighbor: parts[0]!,
+				v: parts[1] ?? '',
+				as: parts[2] ?? '',
+				msg_rcvd: parts[3] ?? '',
+				msg_sent: parts[4] ?? '',
+				up_down: parts[8] ?? '',
+				state: (parts.slice(9).join(' ') || parts[8]) ?? '',
+			});
+		}
+	}
+	return { raw: res.output, neighbors };
 }
 
 export function getBgpCloudConfig(paths: Paths): unknown[] {
@@ -438,10 +465,13 @@ export function getAgentOpsStatus(paths: Paths): Record<string, unknown> {
 	const agentBase = agentBaseDir(paths);
 	const downloadDir = path.join(agentBase, 'download');
 	const vrConfPath = path.join(agentBase, 'vr_conf');
+	const registrationFinish = fs.existsSync(path.join(agentBase, '.registration_finish'));
 	const out: Record<string, unknown> = {
 		agent_base: agentBase,
 		download_dir: downloadDir,
-		registration_finish: fs.existsSync(path.join(agentBase, '.registration_finish')),
+		registration_finish: registrationFinish,
+		/** 与控制器侧 ONLINE 对齐：本机完成注册落盘后视为 ONLINE */
+		registration_status: registrationFinish ? 'ONLINE' : 'OFFLINE',
 		download_files: [] as string[],
 		vr_conf: null as unknown,
 	};

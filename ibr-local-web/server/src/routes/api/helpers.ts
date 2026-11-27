@@ -72,6 +72,50 @@ export function isCidr(s: string) {
 	return Number.isInteger(mask) && mask >= 0 && mask <= 32;
 }
 
+export function isIpv6LinkLocalCidr(s: string) {
+	const addr = s.trim().split('/')[0]?.toLowerCase() ?? '';
+	return addr === 'fe80' || addr.startsWith('fe80:');
+}
+
+export function isIpv6Cidr(s: string) {
+	const t = s.trim();
+	const slash = t.lastIndexOf('/');
+	if (slash <= 0) return false;
+	const addr = t.slice(0, slash);
+	const pfxRaw = t.slice(slash + 1);
+	if (!/^\d{1,3}$/.test(pfxRaw)) return false;
+	const pfx = Number(pfxRaw);
+	if (!Number.isInteger(pfx) || pfx < 0 || pfx > 128) return false;
+	if (!addr.includes(':') || addr.includes('.')) return false;
+	if ((addr.match(/::/g) ?? []).length > 1) return false;
+	let nonempty = 0;
+	for (const g of addr.split(':')) {
+		if (g === '') continue;
+		if (g.length > 4 || !/^[0-9a-fA-F]{1,4}$/.test(g)) return false;
+		nonempty += 1;
+	}
+	if (nonempty === 0) return false;
+	if (!addr.includes('::') && nonempty !== 8) return false;
+	if (addr.includes('::') && nonempty > 7) return false;
+	/** 业务配置禁止链路本地；解析旧地址时用 isIpv6LinkLocalCidr 单独识别。 */
+	if (isIpv6LinkLocalCidr(t)) return false;
+	return true;
+}
+
+export function splitIpFamilyFields(field: string | null | undefined): { v4: string[]; v6: string[] } {
+	const v4: string[] = [];
+	const v6: string[] = [];
+	const seen = new Set<string>();
+	for (const seg of String(field ?? '').split(/[,\s]+/)) {
+		const c = seg.trim();
+		if (!c || seen.has(c)) continue;
+		seen.add(c);
+		if (isCidr(c)) v4.push(c);
+		else if (isIpv6Cidr(c)) v6.push(c);
+	}
+	return { v4, v6 };
+}
+
 /** vbras：`set interface ip address del <ifname> <cidr>`；`oldIpField` 可为逗号分隔的多个 CIDR。 */
 export function vbrasDelIpLines(ifname: string, oldIpField: string): string[] {
 	const seen = new Set<string>();

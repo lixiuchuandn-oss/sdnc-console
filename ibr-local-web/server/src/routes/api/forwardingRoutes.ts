@@ -2,7 +2,7 @@
  * vrlocalctl `app/api/forwarding.py` 的 Node 移植：路径前缀 `/forwarding`（由 apiRouter 挂载到 `/api/forwarding/*`）。
  */
 import { Router } from 'express';
-import { getPaths } from '../../vrwizard.js';
+import { getPaths, loadState } from '../../vrwizard.js';
 import { tracePayload } from './helpers.js';
 import {
 	addRoute,
@@ -54,6 +54,7 @@ import {
 	addIpv6Route,
 	deleteIpv6Route,
 	getAgentOpsStatus,
+	requestControllerConfigSync,
 	getBgpCloudConfig,
 	getBgpSummary,
 	getIpv6Routes,
@@ -582,6 +583,26 @@ export function createForwardingRouter(): Router {
 			const out = getAgentOpsStatus(paths());
 			const netjson = getNetjsonSnapshot(paths());
 			res.json({ ...tracePayload(res), ...out, netjson });
+		} catch (e) {
+			res.status(500).json({ ...tracePayload(res), error: e instanceof Error ? e.message : String(e) });
+		}
+	});
+
+	r.post('/agent/sync-controller-config', (_req, res) => {
+		try {
+			const p = paths();
+			const result = requestControllerConfigSync(p, loadState(p));
+			if (!result.ok) {
+				res.status(400).json({ ...tracePayload(res), ...result });
+				return;
+			}
+			res.json({
+				...tracePayload(res),
+				ok: true,
+				nics_initialized: result.nics_initialized,
+				cleared: result.cleared,
+				message: '已清除本机校验和，download 将在下一轮从控制器拉取配置',
+			});
 		} catch (e) {
 			res.status(500).json({ ...tracePayload(res), error: e instanceof Error ? e.message : String(e) });
 		}

@@ -1,29 +1,73 @@
 import { Router } from 'express';
 import { httpRequestJson } from '../../lib/httpsInsecure.js';
+import { kickManagementIpReport, reportManagementIpToSdnc } from '../../lib/managementIpReporter.js';
 import {
-	clearComputeTowerConfig,
-	clearSdncConsoleConfig,
 	clearSdncCsmctlConfig,
 	normalizeHostPort,
 	normalizeServiceBaseUrl,
-	readComputeTowerBase,
 	readSdncConsoleBase,
 	readSdncCsmctlAddress,
+	writeSdncCsmctlAddress,
 } from '../../lib/sdncServiceConfig.js';
-import { reportManagementIpToSdnc } from '../../lib/managementIpReporter.js';
+import {
+	getRegisterVrIdentityView,
+	identityInstanceKeyChanged,
+	identityPayloadChanged,
+	readRegisterVrIdentity,
+	writeRegisterVrIdentity,
+	type RegisterVrIdentity,
+	type RegisterVrIdentityPatch,
+	type RegisterVrRegenerate,
+} from '../../lib/registerVrIdentity.js';
+import {
+	clearAgentRegistrationFinish,
+	isAgentRegistrationOnline,
+	pokeVrctlAgent,
+} from '../../services/forwarding/forwardingExtended.js';
 import { tracePayload } from './helpers.js';
 import {
-	clearVrcontrolKey,
 	getPaths,
 	loadState,
-	readRegisterVrConfText,
+	readVrcontrolConf,
 	readVrcontrolConfText,
 	readVrcontrolString,
 	saveState,
 	setVrcontrolString,
 	writeRegisterVrConfText,
+	writeVrcontrolConf,
 	writeVrcontrolConfText,
 } from '../../vrwizard.js';
+
+function refreshAgentRegistrationAfterIdentitySave(
+	paths: ReturnType<typeof getPaths>,
+	before: RegisterVrIdentity,
+	after: RegisterVrIdentity,
+): {
+	payload_changed: boolean;
+	instance_key_changed: boolean;
+	registration_invalidated: boolean;
+	agent_poked: boolean;
+	registration_status: 'ONLINE' | 'OFFLINE';
+	registration_finish: boolean;
+} {
+	const payloadChanged = identityPayloadChanged(before, after);
+	const instanceKeyChanged = identityInstanceKeyChanged(before, after);
+	let invalidated = false;
+	let poked = false;
+	if (payloadChanged) {
+		invalidated = clearAgentRegistrationFinish(paths);
+		poked = pokeVrctlAgent();
+	}
+	const online = isAgentRegistrationOnline(paths);
+	return {
+		payload_changed: payloadChanged,
+		instance_key_changed: instanceKeyChanged,
+		registration_invalidated: invalidated,
+		agent_poked: poked,
+		registration_status: online ? 'ONLINE' : 'OFFLINE',
+		registration_finish: online,
+	};
+}
 
 function extractAisocEventList(json: unknown): unknown[] {
 	if (Array.isArray(json)) return json;
@@ -43,25 +87,29 @@ function extractAisocEventList(json: unknown): unknown[] {
 export function createConfigSysRouter(): Router {
 	const r = Router();
 
-	r.get('/sys/sdnc-console', (_req, res) => {
+	r.get('/sys/tower', (_req, res) => {
 		const paths = getPaths();
 		const base = readSdncConsoleBase(paths);
-		const login_url = base ? `${base.replace(/\/+$/, '')}/api/auth/login` : null;
+		const login_url = base ? `${base.replace(/\/+$/, '')}/api/sase/auth/login` : null;
 		res.json({ ok: true, base, login_url });
 	});
 
-	r.post('/sys/sdnc-console', (req, res) => {
+	r.post('/sys/tower', (req, res) => {
 		const base = normalizeServiceBaseUrl(String(req.body?.base ?? '').trim());
-		const paths = getPaths();
 		if (!base) {
-			clearSdncConsoleConfig(paths);
-			res.json({ ok: true, cleared: true });
+			res.status(400).json({ ok: false, error: 'SDN Console 地址不能为空' });
 			return;
 		}
-		setVrcontrolString(paths, 'sdnc_console_base', base);
+		const paths = getPaths();
+		const conf = readVrcontrolConf(paths);
+		conf.sdnc_console_base = base;
+		// 旧读者（上报、SASE）仍读 compute_tower_base；概览不再把它展示为 Compute Tower。
+		conf.compute_tower_base = base;
+		writeVrcontrolConf(paths, conf);
 		res.json({ ok: true });
 	});
 
+	/** 与 SDN Console 对称：规范键 sdnc_csmctl_address，并同步 agent 使用的 manageip */
 	r.get('/sys/sdnc-csmctl', (_req, res) => {
 		const paths = getPaths();
 		const address = readSdncCsmctlAddress(paths);
@@ -85,38 +133,19 @@ export function createConfigSysRouter(): Router {
 			res.status(400).json({ ok: false, error: 'SDN CSMCTL 地址格式错误（不能包含空格）' });
 			return;
 		}
-		setVrcontrolString(paths, 'sdnc_csmctl_address', address);
-		// agent 南向仍读 manageip
-		setVrcontrolString(paths, 'manageip', address);
+		writeSdncCsmctlAddress(paths, address);
 		const state = loadState(paths);
 		const lastApply = state.last_apply && typeof state.last_apply === 'object' ? (state.last_apply as Record<string, unknown>) : {};
-		(lastApply as Record<string, unknown>).manageip = address;
+		lastApply.manageip = address;
 		state.last_apply = lastApply;
 		saveState(paths, state);
 		res.json({ ok: true });
 	});
 
-	r.get('/sys/tower', (_req, res) => {
-		const paths = getPaths();
-		const base = readComputeTowerBase(paths);
-		const login_url = base ? `${base.replace(/\/+$/, '')}/api/sase/auth/login` : null;
-		res.json({ ok: true, base, login_url });
-	});
-
-	r.post('/sys/tower', (req, res) => {
-		const base = normalizeServiceBaseUrl(String(req.body?.base ?? '').trim());
-		const paths = getPaths();
-		if (!base) {
-			clearComputeTowerConfig(paths);
-			res.json({ ok: true, cleared: true });
-			return;
-		}
-		setVrcontrolString(paths, 'compute_tower_base', base);
-		res.json({ ok: true });
-	});
-
-	/** 上报管理口 IP 到 SDN Console（设备公开接口，无需用户登录令牌） */
-	const reportManagementIpHandler = async (req: Parameters<Parameters<Router['post']>[1]>[0], res: Parameters<Parameters<Router['post']>[1]>[1]) => {
+	const reportManagementIpHandler = async (
+		req: Parameters<Parameters<Router['post']>[1]>[0],
+		res: Parameters<Parameters<Router['post']>[1]>[1],
+	) => {
 		try {
 			const bodyIp = String((req.body as Record<string, unknown> | undefined)?.management_ip ?? '').trim();
 			const result = await reportManagementIpToSdnc({
@@ -143,11 +172,27 @@ export function createConfigSysRouter(): Router {
 	r.post('/sys/sdnc/report-management-ip', (req, res) => void reportManagementIpHandler(req, res));
 	r.post('/sys/tower/report-management-ip', (req, res) => void reportManagementIpHandler(req, res));
 
+	/**
+	 * 设备身份（registervr.conf）
+	 * GET：结构化 identity + 原文 content（抽屉预览）
+	 * POST：
+	 *   - { identity } 表单主路径（name/vm_id/uuid/mac/type/version 必填）
+	 *   - { content } 专家整文件写入（抽屉）
+	 */
 	r.get('/sys/register', (_req, res) => {
 		try {
 			const paths = getPaths();
-			const { exists, content } = readRegisterVrConfText(paths);
-			res.json({ ok: true, path: paths.registerVrConf, exists, content });
+			const view = getRegisterVrIdentityView(paths);
+			const registrationOnline = isAgentRegistrationOnline(paths);
+			res.json({
+				ok: true,
+				path: view.path,
+				exists: view.exists,
+				content: view.content,
+				identity: view.identity,
+				registration_status: registrationOnline ? 'ONLINE' : 'OFFLINE',
+				registration_finish: registrationOnline,
+			});
 		} catch (e) {
 			res.status(500).json({ ok: false, error: (e as Error).message || '读取失败' });
 		}
@@ -155,12 +200,55 @@ export function createConfigSysRouter(): Router {
 
 	r.post('/sys/register', (req, res) => {
 		try {
-			const content = typeof req.body?.content === 'string' ? String(req.body.content) : '';
 			const paths = getPaths();
-			writeRegisterVrConfText(paths, content);
-			res.json({ ok: true });
+			const body = (req.body ?? {}) as Record<string, unknown>;
+
+			if (body.identity && typeof body.identity === 'object' && !Array.isArray(body.identity)) {
+				const raw = body.identity as Record<string, unknown>;
+				const patch: RegisterVrIdentityPatch = {};
+				for (const k of ['name', 'vm_id', 'pool_id', 'pool_name', 'type', 'version', 'uuid', 'mac'] as const) {
+					if (Object.prototype.hasOwnProperty.call(raw, k)) {
+						patch[k] = String(raw[k] ?? '');
+					}
+				}
+				const regenRaw =
+					body.regenerate && typeof body.regenerate === 'object' && !Array.isArray(body.regenerate)
+						? (body.regenerate as Record<string, unknown>)
+						: {};
+				const regenerate: RegisterVrRegenerate = {
+					uuid: Boolean(regenRaw.uuid),
+					mac: Boolean(regenRaw.mac),
+					name: Boolean(regenRaw.name),
+				};
+				const before = readRegisterVrIdentity(paths);
+				const { identity, content } = writeRegisterVrIdentity(paths, patch, regenerate);
+				const registration = refreshAgentRegistrationAfterIdentitySave(paths, before, identity);
+				if (identity.uuid) kickManagementIpReport('identity-save');
+				res.json({ ok: true, identity, content, path: paths.registerVrConf, ...registration });
+				return;
+			}
+
+			if (typeof body.content === 'string') {
+				const before = readRegisterVrIdentity(paths);
+				writeRegisterVrConfText(paths, String(body.content));
+				const view = getRegisterVrIdentityView(paths);
+				const registration = refreshAgentRegistrationAfterIdentitySave(paths, before, view.identity);
+				if (view.identity.uuid) kickManagementIpReport('identity-save');
+				res.json({
+					ok: true,
+					identity: view.identity,
+					content: view.content,
+					path: view.path,
+					...registration,
+				});
+				return;
+			}
+
+			res.status(400).json({ ok: false, error: '请提供 identity 对象或 content 字符串' });
 		} catch (e) {
-			res.status(500).json({ ok: false, error: (e as Error).message || '保存失败' });
+			const msg = (e as Error).message || '保存失败';
+			const status = /mac 格式|无效|不能为空/.test(msg) ? 400 : 500;
+			res.status(status).json({ ok: false, error: msg });
 		}
 	});
 
@@ -194,10 +282,13 @@ export function createConfigSysRouter(): Router {
 	});
 
 	r.post('/aisoc/base', (req, res) => {
+		// 可选：空字符串表示清除已配置的 AI SOC 地址
 		const base = String(req.body?.base ?? '').trim();
 		const paths = getPaths();
 		if (!base) {
-			clearVrcontrolKey(paths, 'ai_soc_base');
+			const conf = readVrcontrolConf(paths);
+			delete conf.ai_soc_base;
+			writeVrcontrolConf(paths, conf);
 			res.json({ ok: true, cleared: true });
 			return;
 		}
@@ -272,11 +363,10 @@ export function createConfigSysRouter(): Router {
 			return;
 		}
 		const paths = getPaths();
-		setVrcontrolString(paths, 'sdnc_csmctl_address', manageip);
-		setVrcontrolString(paths, 'manageip', manageip);
+		writeSdncCsmctlAddress(paths, manageip);
 		const state = loadState(paths);
 		const lastApply = state.last_apply && typeof state.last_apply === 'object' ? (state.last_apply as Record<string, unknown>) : {};
-		(lastApply as Record<string, unknown>).manageip = manageip;
+		lastApply.manageip = manageip;
 		state.last_apply = lastApply;
 		saveState(paths, state);
 		res.json({ ok: true });
