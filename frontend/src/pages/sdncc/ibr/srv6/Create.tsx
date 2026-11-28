@@ -45,6 +45,8 @@ import {
   findFirstReuseVrfTunnelRef,
   isFirstHubTunnel,
   matchesHubReuseAnchorLan,
+  shouldSkipPlatformResaveOnEdit,
+  srv6ConfirmStepActions,
   pickHubReuseAnchorFromTunnel,
   pickHubReuseAnchorPreviewFromStatus,
   resolveSelectedHubLanState,
@@ -123,6 +125,10 @@ const SRv6CreatePage: React.FC = () => {
   const [ceConfigs, setCeConfigs] = useState<{ ceA?: any; ceB?: any }>({});
   /** 第 3 步：已创建隧道记录并写入平台 VR配置库 */
   const [platformSaved, setPlatformSaved] = useState(false);
+  /** 编辑态：当前有未保存改动 */
+  const [tunnelFormDirty, setTunnelFormDirty] = useState(false);
+  /** 编辑态：本轮是否改过表单（保存后仍为 true，用于允许进入下发向导） */
+  const [tunnelFormTouched, setTunnelFormTouched] = useState(false);
   const [platformSaveLoading, setPlatformSaveLoading] = useState(false);
   const deployAutoStartedRef = React.useRef(false);
   const [peHubStatus, setPeHubStatus] = useState<{ peA?: Srv6HubVrStatus; peB?: Srv6HubVrStatus }>({});
@@ -153,7 +159,12 @@ const SRv6CreatePage: React.FC = () => {
     try {
       const status = await fetchSrv6HubStatus(id);
       const filtered = editId
-        ? { ...status, tunnels: status.tunnels.filter((t) => t.tunnelId !== editId) }
+        ? {
+            ...status,
+            tunnels: status.tunnels.filter((t) => t.tunnelId !== editId),
+            // 与 tunnels 一致：排除自身，避免编辑唯一 REUSE/DEDICATED 时自占用误判
+            portRegistry: (status.portRegistry ?? []).filter((e) => e.tunnelId !== editId),
+          }
         : status;
       const adjusted = {
         ...filtered,
@@ -1363,11 +1374,11 @@ const SRv6CreatePage: React.FC = () => {
   }, [inferredHubPeSlot, isFirstHubTunnelOnPe, formValues?.peA, formValues?.peB]);
 
   useEffect(() => {
-    if (editId || inferredTopology !== 'H' || !inferredHubPeSlot || isFirstHubTunnelOnPe) {
+    if (inferredTopology !== 'H' || !inferredHubPeSlot || isFirstHubTunnelOnPe) {
       setHubReuseAnchor(null);
       return;
     }
-    if (hubCustomerSideTouchedRef.current) return;
+    // 编辑态仍要加载锚点供模式判定；不要因「用户已改选」而跳过拉取（否则 inherit 校验拿不到 reuseAnchor）
     const status = peHubStatus[inferredHubPeSlot];
     const firstRef = findFirstReuseVrfTunnelRef(status?.tunnels);
     if (!firstRef?.tunnelId) {
@@ -1393,6 +1404,7 @@ const SRv6CreatePage: React.FC = () => {
           return;
         }
         setHubReuseAnchor(anchor);
+        if (editId) return;
         if (hubCustomerSideTouchedRef.current) return;
         const currentLanId = String(form.getFieldValue('hubLanInventoryId') ?? '').trim();
         const currentLanIf = String(form.getFieldValue('hubLanIf') ?? '').trim();
@@ -1409,15 +1421,12 @@ const SRv6CreatePage: React.FC = () => {
           return;
         }
         const innerField = hubPeInnerIfField(inferredHubPeSlot);
-        const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
+        // 仅新建：回填锚点 LAN；CE 仍由用户手选
         form.setFieldsValue({
           hubLanIf: anchor.hubLanIf,
           hubLanInventoryId: anchor.hubLanInventoryId,
           [innerField]: anchor.hubPeInnerIf,
-          [ceField]: anchor.hubCeUuid,
         });
-        // setFieldsValue 不会触发 onValuesChange：这里补拉 Hub 侧 CE 配置，避免 injectedDelta.ceX 缺失
-        await fetchAndSetCeConfig(ceField, anchor.hubCeUuid);
       } catch {
         if (!cancelled) setHubReuseAnchor(null);
       }
@@ -1447,20 +1456,8 @@ const SRv6CreatePage: React.FC = () => {
     if (ifName && inferredHubPeSlot) {
       form.setFieldsValue(hubLanSelectionPatch(inferredHubPeSlot, ifName, String(id)));
     }
-    const onAnchorReuseLan =
-      lanState === 'reuse_reusable' ||
-      matchesHubReuseAnchorLan({
-        hubLanInventoryId: id,
-        hubLanIf: ifName,
-        anchorLanInventoryId: effectiveAnchorLanInventoryId,
-        anchorLanIf: effectiveAnchorLanIf,
-      });
-    if (inferredHubPeSlot && hubReuseAnchor && onAnchorReuseLan) {
-      const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
-      form.setFieldsValue({ [ceField]: hubReuseAnchor.hubCeUuid });
-      // setFieldsValue 不会触发 onValuesChange：补拉 Hub 侧 CE 配置
-      void fetchAndSetCeConfig(ceField, hubReuseAnchor.hubCeUuid);
-    }
+    // CE 不再随锚点 LAN 自动带出：由用户在按角色过滤的 CE 下拉中手选
+    void lanState;
   };
 
   const wizardSectionHeader = (text: string) => (
@@ -1622,6 +1619,7 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   const handleValuesChange = async (changed: any, all: any) => {
+    markTunnelFormDirty();
     if (changed?.peA) {
       await fetchAndSetPeConfig('peA', changed.peA);
       form.setFieldsValue({ peAInnerIf: undefined });
@@ -1845,10 +1843,31 @@ const SRv6CreatePage: React.FC = () => {
     commitPreview();
   };
 
-  /** 仅在前两步回退时清空「已保存」标记；从下发向导回到确认页仍保留（避免重复点创建） */
+  const markTunnelFormDirty = useCallback(() => {
+    if (!editId) return;
+    setTunnelFormDirty(true);
+    setTunnelFormTouched(true);
+    setPlatformSaved(false);
+  }, [editId]);
+
   useEffect(() => {
-    if (current === 0 || current === 1) setPlatformSaved(false);
-  }, [current]);
+    setTunnelFormDirty(false);
+    setTunnelFormTouched(false);
+    setPlatformSaved(!!editId);
+  }, [editId]);
+
+  const confirmStepActions = srv6ConfirmStepActions({
+    isEdit: !!editId,
+    formTouched: tunnelFormTouched,
+    platformSaved,
+  });
+
+  /** 创建：回前两步须重新保存。编辑且无改动：保持已保存，避免无变更仍 PUT */
+  useEffect(() => {
+    if (current !== 0 && current !== 1) return;
+    if (shouldSkipPlatformResaveOnEdit(!!editId, tunnelFormDirty)) return;
+    setPlatformSaved(false);
+  }, [current, editId, tunnelFormDirty]);
 
   /** 校验隧道表单（与原先提交前一致） */
   const computeHubVrfModeForValues = (values: Record<string, unknown>) => {
@@ -2119,6 +2138,7 @@ const SRv6CreatePage: React.FC = () => {
       }
       // P2：四端 config_json 由服务端 baseline+Σcontrib 重算落库，不再前端直写注入预览态
       setPlatformSaved(true);
+      setTunnelFormDirty(false);
       message.success(
         `隧道已${editId ? '更新' : '创建'}，四端生效配置已由平台重算并写入库。请进入「下发向导」按 PE-A → PE-B → ${srv6CeSlotLabel('ceA')} → ${srv6CeSlotLabel('ceB')} 推送到设备。`,
       );
@@ -2364,7 +2384,13 @@ const SRv6CreatePage: React.FC = () => {
   const CoreContent: React.FC = () => {
     if (current === 0) {
       return (
-        <Form layout="vertical" form={form} onKeyDown={handleFormKeyDown} onBlur={handleFormBlur}>
+        <Form
+          layout="vertical"
+          form={form}
+          onKeyDown={handleFormKeyDown}
+          onBlur={handleFormBlur}
+          onValuesChange={markTunnelFormDirty}
+        >
           <Form.Item
             name="tunnelName"
             label="隧道名称"
@@ -2378,6 +2404,7 @@ const SRv6CreatePage: React.FC = () => {
               onChange={(e) => {
                 const next = e.target.value as Srv6TunnelLinkType;
                 if (next === tunnelLinkType) return;
+                markTunnelFormDirty();
                 setTunnelLinkType(next);
                 clearPeSelectionsForLinkTypeChange();
               }}
@@ -2427,6 +2454,15 @@ const SRv6CreatePage: React.FC = () => {
       };
       return wizardStepShell(
         <>
+          {editId && !tunnelFormTouched ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="配置未变更"
+              description="与平台已保存内容一致，无需再次保存，也无需进入下发向导。请返回列表；若要改配置请回到上一步修改。"
+            />
+          ) : null}
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="隧道名称">{form.getFieldValue('tunnelName') || '-'}</Descriptions.Item>
             <Descriptions.Item label="隧道类型">{tunnelLinkTypeLabel(tunnelLinkType)}</Descriptions.Item>
@@ -2541,8 +2577,12 @@ const SRv6CreatePage: React.FC = () => {
 
   const handleWizardStepChange = async (idx: number) => {
     if (idx === current) return;
-    if (idx >= 3 && !platformSaved) {
-      message.warning('请先在「确认并保存」中完成「创建隧道并保存到平台」');
+    if (idx >= 3 && !confirmStepActions.deployEnabled) {
+      message.warning(
+        editId && !tunnelFormTouched
+          ? '当前配置未变更，无需保存或下发'
+          : '请先在「确认并保存」中完成保存到平台',
+      );
       return;
     }
     if (idx > current) {
@@ -2575,7 +2615,7 @@ const SRv6CreatePage: React.FC = () => {
               { title: '基础信息' },
               { title: '选择 PE 与 CE' },
               { title: '确认并保存' },
-              { title: '下发向导', disabled: !platformSaved },
+              { title: '下发向导', disabled: !confirmStepActions.deployEnabled },
             ]}
           />
         }
@@ -2619,21 +2659,25 @@ const SRv6CreatePage: React.FC = () => {
                 )}
                 {current === 2 && (
                   <>
-                    {platformSaved && (
+                    {platformSaved && confirmStepActions.deployEnabled && (
                       <span style={{ color: '#52c41a', display: 'inline-flex', alignItems: 'center', fontWeight: 500, marginRight: 8 }}>
                         <CheckCircleOutlined style={{ marginRight: 4 }} />
                         已保存到平台
                       </span>
                     )}
                     <Button
-                      type="primary"
+                      type={confirmStepActions.saveEnabled ? 'primary' : 'default'}
                       loading={platformSaveLoading}
-                      disabled={platformSaved || !!sid64BlockError}
+                      disabled={!confirmStepActions.saveEnabled || !!sid64BlockError}
                       onClick={() => void saveTunnelPlatformOnly()}
                     >
                       {editId ? '更新隧道并保存到平台' : '创建隧道并保存到平台'}
                     </Button>
-                    <Button type="primary" disabled={!platformSaved} onClick={() => { commitPreview(); next(); }}>
+                    <Button
+                      type="primary"
+                      disabled={!confirmStepActions.deployEnabled}
+                      onClick={() => { commitPreview(); next(); }}
+                    >
                       下一步：下发向导
                     </Button>
                   </>

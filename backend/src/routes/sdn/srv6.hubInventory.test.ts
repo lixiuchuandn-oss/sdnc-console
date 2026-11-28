@@ -1,6 +1,7 @@
 import {
   buildHubInventoryUi,
   emptyHubInventory,
+  listMissingHubBindingInventoryIds,
   materializeHubInventoryForBinding,
   mergeInventoryWithBaselineCandidates,
   parseHubInventoryFromBaseline,
@@ -253,6 +254,31 @@ describe('srv6.hubInventory', () => {
     expect(bgp[1].asn).toBe(65088);
   });
 
+  it('listMissingHubBindingInventoryIds reports ifName without id', () => {
+    expect(
+      listMissingHubBindingInventoryIds({
+        hubPeUuid: 'hub',
+        spokePeUuid: 'spoke',
+        hubPeSlot: 'peB',
+        wanIf: 'GigabitEthernet 0/7/0',
+        lanIf: 'GigabitEthernet 0/8/0',
+        peerPublicNeighbor: '2100::100',
+      }),
+    ).toEqual(['wanInventoryId', 'lanInventoryId']);
+    expect(
+      listMissingHubBindingInventoryIds({
+        hubPeUuid: 'hub',
+        spokePeUuid: 'spoke',
+        hubPeSlot: 'peB',
+        wanIf: 'GigabitEthernet 0/7/0',
+        wanInventoryId: 'w1',
+        lanIf: 'GigabitEthernet 0/8/0',
+        lanInventoryId: 'l1',
+        peerPublicNeighbor: '2100::100',
+      }),
+    ).toEqual([]);
+  });
+
   it('patchHubBindingsInventoryIds fills wan/lan inventory ids', () => {
     const inventory = emptyHubInventory();
     inventory.wan.push({
@@ -262,17 +288,57 @@ describe('srv6.hubInventory', () => {
       source: 'role_wizard',
       createdAt: '2026-01-01',
     });
+    inventory.lan.push({
+      id: 'l1',
+      ifName: 'GigabitEthernet 0/8/0',
+      vrf: 10001,
+      privateAsn: 65001,
+      routerId: '1.1.1.1',
+      source: 'role_wizard',
+      createdAt: '2026-01-01',
+    });
     const patched = patchHubBindingsInventoryIds(
       {
         hubPeUuid: 'hub',
         spokePeUuid: 'spoke',
         hubPeSlot: 'peB',
         wanIf: 'ge2',
+        lanIf: 'GigabitEthernet 0/8/0',
         peerPublicNeighbor: '203::1',
       },
       inventory,
     );
     expect(patched.wanInventoryId).toBe('w1');
+    expect(patched.lanInventoryId).toBe('l1');
+  });
+
+  it('buildHubInventoryUi marks reuse when registry entry lacks lanInventoryId', () => {
+    const inventory = emptyHubInventory();
+    inventory.lan.push({
+      id: 'lan-9999',
+      ifName: 'GigabitEthernet 0/8/0',
+      vrf: 10001,
+      privateAsn: 65001,
+      routerId: '23.1.1.2',
+      source: 'role_wizard',
+      createdAt: '2026-01-01',
+    });
+    const registry: Srv6HubPortRegistryEntry[] = [
+      {
+        tunnelId: 't1',
+        tunnelName: 'legacy-anchor',
+        hubPeSlot: 'peB',
+        wanIf: 'GigabitEthernet 0/7/0',
+        lanIf: 'GigabitEthernet 0/8/0',
+        // 存量：无 lanInventoryId
+        peerPublicNeighbor: '2100::100',
+        spokePeUuid: 'spoke-1',
+        hubVrfMode: 'REUSE_VRF',
+      },
+    ];
+    const ui = buildHubInventoryUi(inventory, registry);
+    expect(ui.lanOptions[0].tags).toContain('lan_reuse_reusable');
+    expect(ui.lanOptions[0].selectable).toBe(true);
   });
 
   it('mergeInventoryWithBaselineCandidates adds wan from baseline interfaces', () => {
@@ -353,5 +419,37 @@ describe('srv6.hubInventory', () => {
     expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan).toHaveLength(1);
     expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan[0].ifName).toBe('ge9');
     expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan[0].source).toBe('role_wizard');
+  });
+
+  it('resolveHubBindingsWithInventory warns but keeps save when inventory cannot fill ids', async () => {
+    AppDataSource.getRepository.mockReturnValue({
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn(),
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const bindings = await resolveHubBindingsWithInventory(
+        'hub-missing',
+        'tunnel-legacy',
+        {
+          hubPeUuid: 'hub-missing',
+          spokePeUuid: 'spoke-1',
+          hubPeSlot: 'peB',
+          wanIf: 'GigabitEthernet 0/7/0',
+          lanIf: 'GigabitEthernet 0/8/0',
+          peerPublicNeighbor: '2100::100',
+        },
+        'REUSE_VRF',
+      );
+      expect(bindings?.wanInventoryId).toBeUndefined();
+      expect(bindings?.lanInventoryId).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalled();
+      const msg = String(warnSpy.mock.calls[0]?.[0] ?? '');
+      expect(msg).toContain('[SRV6] Hub bindings missing inventory id');
+      expect(msg).toContain('wanInventoryId');
+      expect(msg).toContain('lanInventoryId');
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

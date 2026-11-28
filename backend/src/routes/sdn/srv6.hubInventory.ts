@@ -181,7 +181,11 @@ const wanUsedBy = (
 ): Srv6HubPortRegistryEntry[] =>
   registry.filter((e) => normIf(e.wanIf) === normIf(item.ifName));
 
-/** portRegistry 与 LAN inventory 行对齐：有 lanInventoryId 时精确匹配，避免同物理口不同 VRF 误判 */
+/**
+ * portRegistry 与 LAN inventory 行对齐：
+ * - 两侧都有 lanInventoryId：比 id（避免同物理口不同 VRF 误判）
+ * - 仅一侧有 id（存量隧道 hubBindings 缺 lanInventoryId）：回退 ifName
+ */
 const portRegistryLanMatchesInventoryItem = (
   entry: Srv6HubPortRegistryEntry,
   item: HubLanInventoryItem,
@@ -189,10 +193,6 @@ const portRegistryLanMatchesInventoryItem = (
   const entryLanId = String(entry.lanInventoryId ?? '').trim();
   const itemId = String(item.id ?? '').trim();
   if (entryLanId && itemId) return entryLanId === itemId;
-  if (entryLanId) return false;
-  if (itemId) {
-    return !!(entry.lanIf && normIf(entry.lanIf) === normIf(item.ifName));
-  }
   return !!(entry.lanIf && normIf(entry.lanIf) === normIf(item.ifName));
 };
 
@@ -523,7 +523,15 @@ export const resolveHubBindingsWithInventory = async (
     await persistHubInventoryForVr(hubPeUuid, withBaseline);
     hubInventory = withBaseline;
   }
-  return patchHubBindingsInventoryIds(hubBindings, hubInventory);
+  const patched = patchHubBindingsInventoryIds(hubBindings, hubInventory);
+  const missing = listMissingHubBindingInventoryIds(patched);
+  if (missing.length) {
+    // 仍允许落库：首条隧道可能早于角色向导 inventory 持久化；前端 matchesHubReuseAnchorLan 已 ifName 兜底。
+    console.warn(
+      `[SRV6] Hub bindings missing inventory id after resolve: hubPe=${hubPeUuid} tunnel=${_tunnelId} missing=${missing.join(',')} wanIf=${patched.wanIf ?? ''} lanIf=${patched.lanIf ?? ''} inventoryWan=${hubInventory.wan.length} inventoryLan=${hubInventory.lan.length}`,
+    );
+  }
+  return patched;
 };
 
 export type HubInventoryBindingRef = {
@@ -658,6 +666,24 @@ export const materializeHubInventoryForBinding = (
       ensureBgpSegmentFromLanInventory(cfg, lan);
     }
   }
+};
+
+/**
+ * 检查 hubBindings 在补全后是否仍缺 inventoryId（有 ifName 却无 id）。
+ * 用于单测与落库前告警；不阻断保存（避免 inventory 暂空时无法建首条锚点）。
+ */
+export const listMissingHubBindingInventoryIds = (
+  bindings: Srv6HubSlotBinding | null | undefined,
+): Array<'wanInventoryId' | 'lanInventoryId'> => {
+  if (!bindings) return [];
+  const missing: Array<'wanInventoryId' | 'lanInventoryId'> = [];
+  const wanIf = String(bindings.wanIf ?? '').trim();
+  const lanIf = String(bindings.lanIf ?? '').trim();
+  const wanId = String(bindings.wanInventoryId ?? '').trim();
+  const lanId = String(bindings.lanInventoryId ?? '').trim();
+  if (wanIf && !wanId) missing.push('wanInventoryId');
+  if (lanIf && !lanId) missing.push('lanInventoryId');
+  return missing;
 };
 
 /** 按 inventory 补全 hubBindings 的 wan/lan inventoryId */

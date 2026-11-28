@@ -13,6 +13,25 @@ export const hubPeInnerIfField = (hubPeSlot: HubPeSlot): 'peAInnerIf' | 'peBInne
 
 export const isFirstHubTunnel = (aliveTunnelCount: number): boolean => aliveTunnelCount === 0;
 
+/** 编辑向导且表单无改动：平台记录已存在，跳过再次 PUT / 重算 */
+export const shouldSkipPlatformResaveOnEdit = (isEdit: boolean, formDirty: boolean): boolean =>
+  isEdit && !formDirty;
+
+/** 确认页：无改动则保存/下发都不可用；有改动则须先保存再下发 */
+export const srv6ConfirmStepActions = (input: {
+  isEdit: boolean;
+  formTouched: boolean;
+  platformSaved: boolean;
+}): { saveEnabled: boolean; deployEnabled: boolean } => {
+  if (input.isEdit && !input.formTouched) {
+    return { saveEnabled: false, deployEnabled: false };
+  }
+  return {
+    saveEnabled: !input.platformSaved,
+    deployEnabled: input.platformSaved,
+  };
+};
+
 export type HubInventoryBlockKind = 'wan' | 'lan';
 
 export const hubInventoryBlockMessage = (kind: HubInventoryBlockKind): string =>
@@ -54,7 +73,11 @@ export type HubLanInventoryRef = {
 
 const normIf = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
 
-/** portRegistry 与 LAN inventory 行对齐（lanInventoryId 优先；legacy 无 id 时回退 ifName） */
+/**
+ * portRegistry 与 LAN inventory 行对齐：
+ * - 两侧都有 lanInventoryId：比 id
+ * - 仅一侧有 id（存量隧道缺 id）：回退 ifName
+ */
 const portRegistryLanMatchesInventoryItem = (
   entry: HubPortRegistryLanRef,
   item: HubLanInventoryRef,
@@ -62,10 +85,6 @@ const portRegistryLanMatchesInventoryItem = (
   const entryLanId = String(entry.lanInventoryId ?? '').trim();
   const itemId = String(item.id ?? '').trim();
   if (entryLanId && itemId) return entryLanId === itemId;
-  if (entryLanId) return false;
-  if (itemId) {
-    return !!(entry.lanIf && normIf(entry.lanIf) === normIf(item.ifName));
-  }
   return !!(entry.lanIf && normIf(entry.lanIf) === normIf(item.ifName));
 };
 
@@ -427,6 +446,13 @@ export const validateHubTunnelInventory = (
   }
 
   if (input.inheritReuseAnchor) {
+    if (input.selectedLanState === 'dedicated_occupied') {
+      return { ok: false, message: '所选 Hub 内网口已被独立专网隧道占用' };
+    }
+    const hasLanSelection =
+      !!String(input.hubLanInventoryId ?? '').trim() || !!String(input.hubLanIf ?? '').trim();
+    // 编辑回填 / 用户已选手选 LAN：不必再等锚点 CE（CE 改为手选后编辑态常未加载 reuseAnchor）
+    if (hasLanSelection) return { ok: true };
     if (!input.reuseAnchor?.hubLanIf || !input.reuseAnchor?.hubCeUuid) {
       return {
         ok: false,
@@ -495,7 +521,12 @@ const hubCeDiffersFromAnchor = (
   return !!sel && !!anchor && sel !== anchor;
 };
 
-/** 当前 Hub LAN 选择是否与 REUSE 锚点 LAN 一致（inventoryId 优先；同物理口不同 VRF 不算匹配） */
+/**
+ * 当前 Hub LAN 选择是否与 REUSE 锚点 LAN 一致。
+ * - 两侧都有 inventoryId：比 id（两侧若同时有 ifName 则再校验一致，防同 id 脏数据）
+ * - 仅一侧有 id（存量锚点缺 lanInventoryId 等）：回退 ifName，与 portRegistryLanMatchesInventoryItem 兜底一致
+ * - 都无 id：仅比 ifName
+ */
 export const matchesHubReuseAnchorLan = (input: {
   hubLanInventoryId?: string;
   hubLanIf?: string;
@@ -511,7 +542,6 @@ export const matchesHubReuseAnchorLan = (input: {
     if (anchorIf && selIf) return selIf === anchorIf;
     return true;
   }
-  if (selId || anchorId) return false;
   return !!(anchorIf && selIf && selIf === anchorIf);
 };
 

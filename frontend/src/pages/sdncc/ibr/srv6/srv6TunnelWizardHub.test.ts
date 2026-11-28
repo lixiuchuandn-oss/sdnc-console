@@ -8,6 +8,8 @@ import {
   hubLanSelectionClear,
   isFirstHubTunnel,
   matchesHubReuseAnchorLan,
+  shouldSkipPlatformResaveOnEdit,
+  srv6ConfirmStepActions,
   pickHubReuseAnchorFromTunnel,
   pickHubReuseAnchorPreviewFromStatus,
   resolveHubCustomerSideIntent,
@@ -22,6 +24,36 @@ describe('srv6TunnelWizardHub P3/P5', () => {
   it('isFirstHubTunnel when no alive tunnels on hub', () => {
     expect(isFirstHubTunnel(0)).toBe(true);
     expect(isFirstHubTunnel(1)).toBe(false);
+  });
+
+  it('shouldSkipPlatformResaveOnEdit only when editing with no form dirty', () => {
+    expect(shouldSkipPlatformResaveOnEdit(true, false)).toBe(true);
+    expect(shouldSkipPlatformResaveOnEdit(true, true)).toBe(false);
+    expect(shouldSkipPlatformResaveOnEdit(false, false)).toBe(false);
+  });
+
+  it('srv6ConfirmStepActions disables save and deploy when edit has no changes', () => {
+    expect(
+      srv6ConfirmStepActions({ isEdit: true, formTouched: false, platformSaved: true }),
+    ).toEqual({ saveEnabled: false, deployEnabled: false });
+  });
+
+  it('srv6ConfirmStepActions requires save before deploy after edit changes', () => {
+    expect(
+      srv6ConfirmStepActions({ isEdit: true, formTouched: true, platformSaved: false }),
+    ).toEqual({ saveEnabled: true, deployEnabled: false });
+    expect(
+      srv6ConfirmStepActions({ isEdit: true, formTouched: true, platformSaved: true }),
+    ).toEqual({ saveEnabled: false, deployEnabled: true });
+  });
+
+  it('srv6ConfirmStepActions create must save then deploy', () => {
+    expect(
+      srv6ConfirmStepActions({ isEdit: false, formTouched: false, platformSaved: false }),
+    ).toEqual({ saveEnabled: true, deployEnabled: false });
+    expect(
+      srv6ConfirmStepActions({ isEdit: false, formTouched: false, platformSaved: true }),
+    ).toEqual({ saveEnabled: false, deployEnabled: true });
   });
 
   it('hubInventoryBlockMessage uses role wizard guidance', () => {
@@ -124,6 +156,39 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         hubLanIf: 'GigabitEthernet 2/3/0',
         anchorLanInventoryId: 'lan-9999',
         anchorLanIf: 'GigabitEthernet 2/3/0',
+      }),
+    ).toBe(false);
+  });
+
+  it('matchesHubReuseAnchorLan falls back to ifName when anchor lacks inventory id', () => {
+    expect(
+      matchesHubReuseAnchorLan({
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 0/8/0',
+        anchorLanInventoryId: undefined,
+        anchorLanIf: 'GigabitEthernet 0/8/0',
+      }),
+    ).toBe(true);
+  });
+
+  it('matchesHubReuseAnchorLan falls back to ifName when selection lacks inventory id', () => {
+    expect(
+      matchesHubReuseAnchorLan({
+        hubLanInventoryId: undefined,
+        hubLanIf: 'GigabitEthernet 0/8/0',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 0/8/0',
+      }),
+    ).toBe(true);
+  });
+
+  it('matchesHubReuseAnchorLan one-sided id still rejects different ifName', () => {
+    expect(
+      matchesHubReuseAnchorLan({
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 0/b/0',
+        anchorLanInventoryId: undefined,
+        anchorLanIf: 'GigabitEthernet 0/8/0',
       }),
     ).toBe(false);
   });
@@ -490,6 +555,39 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         reuseAnchor: null,
       }).ok,
     ).toBe(false);
+  });
+
+  it('validateHubTunnelInventory inherit with LAN already selected does not require reuseAnchor CE', () => {
+    expect(
+      validateHubTunnelInventory({
+        hubVrfMode: 'REUSE_VRF',
+        hubWanInventoryId: 'w1',
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 0/8/0',
+        isFirstHubTunnel: false,
+        hasWanInventoryOptions: true,
+        hasLanInventoryOptions: true,
+        inheritReuseAnchor: true,
+        reuseAnchor: null,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('validateHubTunnelInventory inherit still blocks dedicated_occupied LAN', () => {
+    expect(
+      validateHubTunnelInventory({
+        hubVrfMode: 'REUSE_VRF',
+        hubWanInventoryId: 'w1',
+        hubLanInventoryId: 'lan-ded',
+        hubLanIf: 'GigabitEthernet 0/8/0',
+        isFirstHubTunnel: false,
+        hasWanInventoryOptions: true,
+        hasLanInventoryOptions: true,
+        inheritReuseAnchor: true,
+        selectedLanState: 'dedicated_occupied',
+        reuseAnchor: null,
+      }),
+    ).toEqual({ ok: false, message: '所选 Hub 内网口已被独立专网隧道占用' });
   });
 
   it('validateHubTunnelInventory allows new REUSE anchor on idle LAN without prior anchor', () => {
