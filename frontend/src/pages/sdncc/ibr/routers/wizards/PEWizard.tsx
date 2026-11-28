@@ -57,6 +57,7 @@ import {
   isHubLanIfNameLocked,
   lockedLanFieldChanges,
   lockedLanIfNamesFromConfig,
+  lockedLanVrfsForBound,
   lockedLanVrfsFromConfig,
   lockedWanFieldChanges,
   lockedWanIfNamesFromConfig,
@@ -447,8 +448,14 @@ const PEWizard: React.FC = () => {
     };
   }, [uuid, isHubPe]);
   const lockedLanVrfs = useMemo(
-    () => (tunnelRefNames ? lockedLanVrfsFromConfig(existingCfg) : new Set<string>()),
-    [tunnelRefNames, existingCfg],
+    () =>
+      !tunnelRefNames
+        ? new Set<string>()
+        : isHubPe
+          ? // Hub：只锁仍被隧道绑定的 LAN 口所在 VRF；隧道删除后该 VRF 解锁
+            lockedLanVrfsForBound(existingCfg, boundHubLanIfNames)
+          : lockedLanVrfsFromConfig(existingCfg),
+    [tunnelRefNames, existingCfg, isHubPe, boundHubLanIfNames],
   );
   const lockedWanIfNames = useMemo(
     () => (tunnelRefNames ? lockedWanIfNamesFromConfig(existingCfg) : new Set<string>()),
@@ -1591,6 +1598,7 @@ const PEWizard: React.FC = () => {
         const lockedChanges = [
           ...lockedLanFieldChanges(base, values.lanConfigs, {
             boundLanIfNames: boundLanForDispatch,
+            ...(isHubPe ? { lockedVrfs: lockedLanVrfsForBound(base, boundLanForDispatch) } : {}),
           }),
           // Spoke 只有单 WAN（wanDev），没有 hubWanInventory；否则会误报“WAN 不可删除”
           ...lockedWanFieldChanges(

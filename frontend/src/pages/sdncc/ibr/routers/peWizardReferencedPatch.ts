@@ -345,8 +345,11 @@ function mergeInterfacesAndLanBgp(
   cfg: Record<string, unknown>,
   full: Record<string, unknown>,
   blocked?: string[],
+  /** Hub：仍被隧道绑定的 VRF；不在其中的已有 LAN BGP 允许修改。undefined = 全部锁定（旧行为） */
+  lockedVrfs?: Set<string>,
 ): string[] {
   const labels: string[] = [];
+  const updatedBgp: string[] = [];
   const added: string[] = [];
   const updated: string[] = [];
   for (const key of IFACE_BUCKETS) {
@@ -401,6 +404,39 @@ function mergeInterfacesAndLanBgp(
     if (isPublicBgp(b) && curBgp.some(isPublicBgp) && !b.address_family) continue;
     const k = bgpKey(b);
     if (curKeys.has(k)) {
+      // Hub：VRF 已不再被隧道绑定（隧道已删）→ 允许把 ASN/Router-ID/RD/RT 改动合入
+      if (!isPublicBgp(b) && lockedVrfs && !lockedVrfs.has(text(b.vrf))) {
+        const idx = curBgp.findIndex((c) => bgpKey(c) === k);
+        const old = curBgp[idx] || {};
+        const o = bgpLockedFields(old);
+        const n = bgpLockedFields(b);
+        if (
+          (n.asn && n.asn !== o.asn) ||
+          (n.rid && n.rid !== o.rid) ||
+          (n.rd && n.rd !== o.rd) ||
+          (n.rt && n.rt !== o.rt)
+        ) {
+          const af = Array.isArray(old.address_family)
+            ? (old.address_family as Record<string, unknown>[]).map((a) =>
+                a && typeof a === 'object' && text(a.modifiler) === 'unicast'
+                  ? {
+                      ...a,
+                      ...(n.rd ? { route_distinguisher: n.rd } : {}),
+                      ...(n.rt ? { route_target: n.rt } : {}),
+                    }
+                  : a,
+              )
+            : b.address_family;
+          curBgp[idx] = {
+            ...old,
+            ...(n.asn ? { asn: Number(n.asn) } : {}),
+            ...(n.rid ? { router_id: n.rid } : {}),
+            address_family: af,
+          };
+          updatedBgp.push(`VRF ${text(b.vrf)}`);
+        }
+        continue;
+      }
       if (!isPublicBgp(b) && blocked) {
         const old = curBgp.find((c) => bgpKey(c) === k) || {};
         const o = bgpLockedFields(old);
@@ -418,10 +454,9 @@ function mergeInterfacesAndLanBgp(
     curKeys.add(k);
     newBgp.push(b.vrf != null ? `VRF ${b.vrf}` : `RID ${text(b.router_id)}`);
   }
-  if (newBgp.length) {
-    cfg.bgp = curBgp;
-    labels.push(`新增 LAN BGP（${newBgp.join('、')}）`);
-  }
+  if (newBgp.length || updatedBgp.length) cfg.bgp = curBgp;
+  if (newBgp.length) labels.push(`新增 LAN BGP（${newBgp.join('、')}）`);
+  if (updatedBgp.length) labels.push(`LAN BGP（${updatedBgp.join('、')}）`);
   return labels;
 }
 
@@ -638,6 +673,23 @@ const savedLanRows = (cfg: unknown): Map<string, LockedLanRow> => {
 /** 被隧道引用时锁定的 LAN VRF（已保存配置中存在的 VRF） */
 export const lockedLanVrfsFromConfig = (cfg: unknown): Set<string> => new Set(savedLanRows(cfg).keys());
 
+/**
+ * Hub：只锁隧道实际绑定的 LAN 口所在 VRF（同 VRF 的其它行一并锁 BGP）。
+ * boundLanIfNames 为 null（绑定未知）时失败关闭：锁全部已保存 VRF。
+ */
+export const lockedLanVrfsForBound = (
+  cfg: unknown,
+  boundLanIfNames: Set<string> | null | undefined,
+): Set<string> => {
+  const saved = savedLanRows(cfg);
+  if (!boundLanIfNames) return new Set(saved.keys());
+  const out = new Set<string>();
+  saved.forEach((row, vrf) => {
+    if (row.ifName && ifNameInSet(row.ifName, boundLanIfNames)) out.add(vrf);
+  });
+  return out;
+};
+
 /** 已保存 LAN 口名（Hub 未解析绑定集时用于失败关闭） */
 export const lockedLanIfNamesFromConfig = (cfg: unknown): Set<string> => {
   const out = new Set<string>();
@@ -680,7 +732,7 @@ export const lockedWanIfNamesFromConfig = (cfg: unknown): Set<string> => {
 export const lockedLanFieldChanges = (
   cfg: unknown,
   lanRows: HubLanFormRow[] | undefined,
-  opts?: { boundLanIfNames?: Set<string> | null },
+  opts?: { boundLanIfNames?: Set<string> | null; lockedVrfs?: Set<string> },
 ): string[] => {
   const saved = savedLanRows(cfg);
   const out: string[] = [];
@@ -690,6 +742,8 @@ export const lockedLanFieldChanges = (
     if (vrf) present.add(vrf);
     const o = vrf ? saved.get(vrf) : undefined;
     if (!o) return;
+    // Hub：VRF 已不再被隧道绑定（如隧道已删）→ BGP 字段可改，不报锁定
+    if (opts?.lockedVrfs && !opts.lockedVrfs.has(vrf)) return;
     const diffs: string[] = [];
     const cmp = (label: string, before: string, after: string) => {
       if (before && after !== before) diffs.push(`${label} ${before}→${after || '-'}`);
@@ -788,7 +842,11 @@ export function applyPeWizardReferencedChanges(
   }
 
   if (opts.fullCfg) {
-    changedLabels.push(...mergeInterfacesAndLanBgp(cfg, opts.fullCfg, blockedReasons));
+    const hubLockedVrfs =
+      opts.isHubPe && opts.boundLanIfNames !== undefined
+        ? lockedLanVrfsForBound(existing, opts.boundLanIfNames)
+        : undefined;
+    changedLabels.push(...mergeInterfacesAndLanBgp(cfg, opts.fullCfg, blockedReasons, hubLockedVrfs));
     if (blockedReasons.length) {
       return { cfg: cloneCfg(existing), changedLabels: [], blockedReasons };
     }
