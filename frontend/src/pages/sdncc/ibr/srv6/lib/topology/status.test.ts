@@ -39,7 +39,17 @@ describe('topology status', () => {
   it('relatedIds covers tunnel, both PEs and CEs', () => {
     const ids = relatedIds(topo, { kind: 'tunnel', id: 't1' })!;
     ['t:t1', 'pe:A', 'pe:B', 'ce:CA', 'ce:CB'].forEach((id) => expect(ids.has(id)).toBe(true));
+    topo.attaches.forEach((a) => expect(ids.has(a.id)).toBe(true));
     expect(relatedIds(topo, null)).toBeNull();
+  });
+
+  it('relatedIds for attach covers PE and CE only', () => {
+    const att = topo.attaches[0]!;
+    const ids = relatedIds(topo, { kind: 'attach', id: att.id })!;
+    expect(ids.has(att.id)).toBe(true);
+    expect(ids.has(att.peNodeId)).toBe(true);
+    expect(ids.has(att.ceNodeId)).toBe(true);
+    expect(ids.has('t:t1')).toBe(false);
   });
 
   it('buildRuntimeMap uses same health keys as VR list', () => {

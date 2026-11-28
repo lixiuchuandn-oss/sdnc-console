@@ -20,7 +20,22 @@ import {
   type RuntimeStatus,
   type VrStatus,
 } from './status';
-import { runtimeStroke, trafficSubLabel, type TunnelRuntime } from './runtimeTraffic';
+import {
+  attachKey,
+  attachLiveLabel,
+  attachStroke,
+  directionText,
+  edgeTrafficTip,
+  hasBadTraffic,
+  runtimeStroke,
+  trafficSubLabel,
+  vbrasText,
+  vrrpText,
+  type AttachRuntime,
+  type NodeRuntime,
+  type TunnelRuntime,
+} from './runtimeTraffic';
+import type { Srv6DirectionTraffic, Srv6VbrasState, Srv6VrrpRole } from '../../../../../../services/api';
 
 export type PeNodeData = {
   role: TopoNode['role'];
@@ -33,6 +48,9 @@ export type PeNodeData = {
   dim?: boolean;
   /** Hub WAN 口：接口缩写 → 挂载隧道数 */
   wanPorts?: Array<{ ifName: string; count: number; focus: boolean }>;
+  vbras?: Srv6VbrasState;
+  vrrpRole?: Srv6VrrpRole;
+  hubInbound?: Srv6DirectionTraffic;
 };
 
 export type CeNodeData = {
@@ -43,6 +61,8 @@ export type CeNodeData = {
   status: ConfigStatus;
   runtime: RuntimeStatus;
   dim?: boolean;
+  vbras?: Srv6VbrasState;
+  vrrpRole?: Srv6VrrpRole;
 };
 
 /** 中心浮动锚点：自定义边直接使用节点中心 */
@@ -70,6 +90,26 @@ const RuntimeBadge: React.FC<{ runtime: RuntimeStatus }> = ({ runtime }) => {
   );
 };
 
+const LiveBadges: React.FC<{ vbras?: Srv6VbrasState; vrrpRole?: Srv6VrrpRole }> = ({ vbras, vrrpRole }) => {
+  const vb = vbrasText(vbras);
+  const vr = vrrpText(vrrpRole);
+  if (!vb && !vr) return null;
+  return (
+    <>
+      {vb ? (
+        <span className={`srv6-topo-live-badge is-vbras-${vbras || 'unknown'}`} title={vb}>
+          {vb}
+        </span>
+      ) : null}
+      {vr ? (
+        <span className={`srv6-topo-live-badge is-vrrp-${vrrpRole || ''}`} title={`VRRP ${vr}`}>
+          VRRP {vr}
+        </span>
+      ) : null}
+    </>
+  );
+};
+
 const ROLE_LABEL: Record<TopoNode['role'], string> = {
   hub: 'Hub PE',
   spoke: 'Spoke PE',
@@ -89,13 +129,17 @@ export const PeTopoNode = memo(({ data, selected }: NodeProps<PeNodeData>) => (
     <div className="srv6-arch-node-role">
       {ROLE_LABEL[data.role]}
       {data.focus && data.role !== 'hub' ? <span className="srv6-arch-node-badge">当前</span> : null}
+      <LiveBadges vbras={data.vbras} vrrpRole={data.vrrpRole} />
       <RuntimeBadge runtime={data.runtime} />
       <StatusDot status={data.status} />
     </div>
     <div className="srv6-arch-node-name" title={data.uuid}>
       {data.name}
     </div>
-    <div className="srv6-arch-node-meta">{data.tunnelCount} 条隧道</div>
+    <div className="srv6-arch-node-meta">
+      {data.tunnelCount} 条隧道
+      {data.hubInbound ? ` · 入向合计 ${directionText(data.hubInbound)}` : ''}
+    </div>
     {data.wanPorts && data.wanPorts.length ? (
       <div className="srv6-topo-ports">
         {data.wanPorts.map((p) => (
@@ -127,6 +171,7 @@ export const CeTopoNode = memo(({ data, selected }: NodeProps<CeNodeData>) => (
     <span className="srv6-topo-ce-role">CE</span>
     <span className="srv6-topo-ce-name">{data.name}</span>
     {data.shared > 1 ? <span className="srv6-topo-ce-shared">×{data.shared}</span> : null}
+    <LiveBadges vbras={data.vbras} vrrpRole={data.vrrpRole} />
     <RuntimeBadge runtime={data.runtime} />
     <StatusDot status={data.status} />
   </div>
@@ -145,6 +190,9 @@ export type FlowOptions = {
   hoverTunnelId?: string | null;
   /** R3：隧道运行态（流量 / 公网 BGP），key = tunnelId */
   trafficMap?: Record<string, TunnelRuntime>;
+  nodeLive?: Record<string, NodeRuntime>;
+  attachLive?: Record<string, AttachRuntime>;
+  hubAggregates?: Record<string, Srv6DirectionTraffic>;
 };
 
 export function toFlowElements(
@@ -184,6 +232,8 @@ export function toFlowElements(
           status: st(n.uuid),
           runtime: rt(n.uuid),
           dim: dim(n.id),
+          vbras: opts.nodeLive?.[n.uuid]?.vbras,
+          vrrpRole: opts.nodeLive?.[n.uuid]?.vrrpRole,
         } as CeNodeData,
       };
     }
@@ -201,6 +251,9 @@ export function toFlowElements(
         runtime: rt(n.uuid),
         dim: dim(n.id),
         wanPorts: ports ? Array.from(ports.entries()).map(([ifName, v]) => ({ ifName, ...v })) : undefined,
+        vbras: opts.nodeLive?.[n.uuid]?.vbras,
+        vrrpRole: opts.nodeLive?.[n.uuid]?.vrrpRole,
+        hubInbound: n.role === 'hub' ? opts.hubAggregates?.[n.uuid] : undefined,
       } as PeNodeData,
     };
   });
@@ -215,6 +268,9 @@ export function toFlowElements(
       const offline = attachOffline(peUuid, ceUuid, runtimeMap);
       const cfgIssue =
         hasStatus && (st(ceUuid) === 'issue' || st(peUuid) === 'issue') ? 'issue' : null;
+      const att = opts.attachLive?.[attachKey(peUuid, ceUuid)];
+      const liveLabel = attachLiveLabel(att);
+      const ifLabel = abbrIfName(a.innerIf);
       return {
         id: a.id,
         source: a.peNodeId,
@@ -225,11 +281,12 @@ export function toFlowElements(
         className: dim(a.id) ? 'is-dim' : undefined,
         data: {
           kind: 'attach' as const,
-          label: offline ? '端点离线' : abbrIfName(a.innerIf) || undefined,
-          subLabel: offline && a.innerIf ? abbrIfName(a.innerIf) : undefined,
+          label: offline ? '端点离线' : ifLabel || liveLabel,
+          subLabel: offline ? ifLabel : ifLabel && liveLabel ? liveLabel : undefined,
           focus: a.focus,
-          stroke: offline ? OFFLINE_STROKE : cfgIssue ? STATUS_COLOR.issue : undefined,
+          stroke: offline ? OFFLINE_STROKE : attachStroke(att) || (cfgIssue ? STATUS_COLOR.issue : undefined),
           dashed: offline,
+          tip: liveLabel,
         },
       };
     }),
@@ -268,6 +325,8 @@ export function toFlowElements(
           groupSize: t.groupSize,
           stroke,
           dashed: offline,
+          tip: offline ? undefined : edgeTrafficTip(trt),
+          subWarn: hasBadTraffic(trt),
         },
       };
     }),

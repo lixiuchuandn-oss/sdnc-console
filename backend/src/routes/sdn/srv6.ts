@@ -445,7 +445,8 @@ srv6Routes.get('/topology-runtime', async (req, res, next) => {
       res.status(400).json({ message: '缺少 tunnelIds' });
       return;
     }
-    res.json(await buildSrv6TopologyRuntime(ids));
+    const sample = String(req.query.sample || '') === '2' ? 2 : 1;
+    res.json(await buildSrv6TopologyRuntime(ids, { sample }));
   } catch (e) {
     next(e);
   }

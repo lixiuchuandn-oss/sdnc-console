@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
 import {
+  ClockCircleOutlined,
   CloseOutlined,
   ExpandOutlined,
+  InfoCircleOutlined,
   LockOutlined,
   ReloadOutlined,
   UnlockOutlined,
@@ -21,6 +23,7 @@ import {
   fetchSrv6Tunnels,
   type Srv6HubVrStatus,
   type Srv6ReconcileReport,
+  type Srv6TopologyRuntimeResp,
 } from '../../../../services/api';
 import IbrWizardPageHeader from '../lib/IbrWizardPageHeader';
 import { loadIbrVrCatalog, syncAndLoadIbrVrCatalog, type IbrVrRow } from '../lib/ibrVrCatalog';
@@ -50,7 +53,13 @@ import {
   type VrStatus,
 } from './lib/topology/status';
 import TopoDetailDrawer from './lib/topology/TopoDetailDrawer';
-import type { TunnelRuntime } from './lib/topology/runtimeTraffic';
+import {
+  AUTO_REFRESH_MS,
+  TRAFFIC_TIP,
+  hasBadTraffic,
+  publicBgpText,
+  trafficSubLabel,
+} from './lib/topology/runtimeTraffic';
 
 const emptyCatalog = (): { vrs: IbrVrRow[]; nameMap: Record<string, string> } => ({
   vrs: [],
@@ -63,6 +72,8 @@ type ArchFlowToolbarProps = {
   tunnelCount: number;
   listOpen: boolean;
   refreshing: boolean;
+  autoRefresh: boolean;
+  onAutoRefreshChange: (on: boolean) => void;
   onToggleTunnelList: () => void;
   onRefresh: () => void;
 };
@@ -74,6 +85,8 @@ const ArchFlowToolbar: React.FC<ArchFlowToolbarProps> = ({
   tunnelCount,
   listOpen,
   refreshing,
+  autoRefresh,
+  onAutoRefreshChange,
   onToggleTunnelList,
   onRefresh,
 }) => {
@@ -91,6 +104,15 @@ const ArchFlowToolbar: React.FC<ArchFlowToolbarProps> = ({
       </Tooltip>
       <Tooltip title="刷新">
         <Button type="text" size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={onRefresh} />
+      </Tooltip>
+      <Tooltip title={autoRefresh ? '关闭自动刷新' : `自动刷新运行态（${AUTO_REFRESH_MS / 1000} 秒）`}>
+        <Button
+          type="text"
+          size="small"
+          icon={<ClockCircleOutlined />}
+          className={autoRefresh ? 'is-locked' : undefined}
+          onClick={() => onAutoRefreshChange(!autoRefresh)}
+        />
       </Tooltip>
       <span className="srv6-arch-flow-toolbar-sep" />
       <Tooltip title="缩小">
@@ -125,7 +147,8 @@ const ArchFlowLegend: React.FC<{
   mode: Srv6Topology['mode'];
   hasStatus: boolean;
   hasRuntime: boolean;
-}> = ({ mode, hasStatus, hasRuntime }) => (
+  hasLive: boolean;
+}> = ({ mode, hasStatus, hasRuntime, hasLive }) => (
   <div className="srv6-arch-flow-legend" aria-label="图例">
     {mode === 'hub' ? (
       <>
@@ -180,6 +203,39 @@ const ArchFlowLegend: React.FC<{
         </span>
       </>
     ) : null}
+    {hasLive ? (
+      <>
+        <span className="srv6-arch-legend-sep" />
+        <span>
+          <i className="srv6-arch-legend-line is-bgp-up" />
+          公网 BGP 正常
+        </span>
+        <span>
+          <i className="srv6-arch-legend-line is-bgp-down" />
+          公网 BGP 异常
+        </span>
+        <span>
+          <i className="srv6-arch-legend-line is-attach is-bgp-up" />
+          私网 BGP 正常
+        </span>
+        <span>
+          <i className="srv6-arch-legend-line is-attach is-bgp-down" />
+          私网 BGP 异常
+        </span>
+        <span>
+          <span className="srv6-topo-live-badge is-vbras-running">vbras 运行</span>
+        </span>
+        <span>
+          <span className="srv6-topo-live-badge is-vrrp-master">VRRP 主/备</span>
+        </span>
+      </>
+    ) : null}
+    <span className="srv6-arch-legend-sep" />
+    <Tooltip title={TRAFFIC_TIP}>
+      <span className="srv6-arch-legend-tip">
+        <InfoCircleOutlined /> 流量说明
+      </span>
+    </Tooltip>
   </div>
 );
 
@@ -188,13 +244,15 @@ type ArchCanvasProps = {
   nameOf: (uuid: string) => string;
   statusMap: Record<string, VrStatus>;
   runtimeMap: Record<string, RuntimeStatus>;
-  trafficMap?: Record<string, TunnelRuntime>;
+  runtime?: Srv6TopologyRuntimeResp | null;
   selection: Selection;
   hoverTunnelId: string | null;
   listOpen: boolean;
   refreshing: boolean;
+  autoRefresh: boolean;
   onSelect: (sel: Selection) => void;
   onToggleTunnelList: () => void;
+  onAutoRefreshChange: (on: boolean) => void;
   onRefresh: () => void;
 };
 
@@ -203,20 +261,32 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
   nameOf,
   statusMap,
   runtimeMap,
-  trafficMap,
+  runtime,
   selection,
   hoverTunnelId,
   listOpen,
   refreshing,
+  autoRefresh,
   onSelect,
   onToggleTunnelList,
+  onAutoRefreshChange,
   onRefresh,
 }) => {
   const [locked, setLocked] = useState(false);
   const related = useMemo(() => relatedIds(topo, selection), [topo, selection]);
   const { nodes, edges } = useMemo(
-    () => toFlowElements(topo, nameOf, { statusMap, runtimeMap, related, hoverTunnelId, trafficMap }),
-    [topo, nameOf, statusMap, runtimeMap, related, hoverTunnelId, trafficMap],
+    () =>
+      toFlowElements(topo, nameOf, {
+        statusMap,
+        runtimeMap,
+        related,
+        hoverTunnelId,
+        trafficMap: runtime?.tunnels,
+        nodeLive: runtime?.nodes,
+        attachLive: runtime?.attaches,
+        hubAggregates: runtime?.hubAggregates,
+      }),
+    [topo, nameOf, statusMap, runtimeMap, related, hoverTunnelId, runtime],
   );
   return (
     <ReactFlow
@@ -240,6 +310,7 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
       onNodeClick={(_, n) => onSelect({ kind: 'node', id: n.id })}
       onEdgeClick={(_, e) => {
         if (e.id.startsWith('t:')) onSelect({ kind: 'tunnel', id: e.id.slice(2) });
+        else if (e.id.startsWith('att:')) onSelect({ kind: 'attach', id: e.id });
       }}
       onPaneClick={() => onSelect(null)}
     >
@@ -250,13 +321,16 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
         tunnelCount={topo.tunnels.length}
         listOpen={listOpen}
         refreshing={refreshing}
+        autoRefresh={autoRefresh}
         onToggleTunnelList={onToggleTunnelList}
+        onAutoRefreshChange={onAutoRefreshChange}
         onRefresh={onRefresh}
       />
       <ArchFlowLegend
         mode={topo.mode}
         hasStatus={Object.values(statusMap).some((s) => s.status !== 'unknown')}
         hasRuntime={Object.keys(runtimeMap).length > 0}
+        hasLive={!!runtime}
       />
     </ReactFlow>
   );
@@ -312,6 +386,7 @@ const Srv6ArchitecturePage: React.FC = () => {
   const [listOpen, setListOpen] = useState(false);
   const [selection, setSelection] = useState<Selection>(null);
   const [hoverTunnelId, setHoverTunnelId] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   const applyCatalog = useCallback((catalog: { vrs?: IbrVrRow[]; nameMap?: Record<string, string> } | null) => {
     setVrNameMap(catalog?.nameMap || {});
@@ -426,24 +501,53 @@ const Srv6ArchitecturePage: React.FC = () => {
   const statusMap = useMemo(() => (topo ? buildStatusMap(topo, reconcile) : {}), [topo, reconcile]);
   const runtimeMap = useMemo(() => buildRuntimeMap(vrRows), [vrRows]);
 
-  // R3：隧道运行态（实时拉设备）；拓扑隧道集变化或用户刷新时重新拉取
-  const [trafficMap, setTrafficMap] = useState<Record<string, TunnelRuntime>>({});
+  // R3：隧道运行态（实时拉设备）；拓扑隧道集变化或用户刷新时双采样出速率
+  const [runtime, setRuntime] = useState<Srv6TopologyRuntimeResp | null>(null);
   const [trafficTick, setTrafficTick] = useState(0);
+  const [trafficLoading, setTrafficLoading] = useState(false);
   const topoTunnelKey = topo ? topo.tunnels.map((t) => t.id).sort().join(',') : '';
+  const trafficGenRef = useRef(0);
   useEffect(() => {
     if (!topoTunnelKey) return;
+    const gen = ++trafficGenRef.current;
     let alive = true;
-    fetchSrv6TopologyRuntime(topoTunnelKey.split(','))
+    setTrafficLoading(true);
+    fetchSrv6TopologyRuntime(topoTunnelKey.split(','), { sample: 2 })
       .then((r) => {
-        if (alive && r && r.tunnels) setTrafficMap(r.tunnels);
+        if (alive && gen === trafficGenRef.current && r && r.tunnels) setRuntime(r);
       })
       .catch(() => {
         // 运行态失败不阻塞拓扑：保持上次结果
+      })
+      .finally(() => {
+        if (alive && gen === trafficGenRef.current) setTrafficLoading(false);
       });
     return () => {
       alive = false;
     };
   }, [topoTunnelKey, trafficTick]);
+  useEffect(() => {
+    if (!autoRefresh || !topoTunnelKey) return;
+    const key = topoTunnelKey;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      const gen = trafficGenRef.current;
+      fetchSrv6TopologyRuntime(key.split(','), { sample: 1 })
+        .then((r) => {
+          // 隧道集变更或手动双采样进行中时，丢弃陈旧自动刷新结果
+          if (alive && gen === trafficGenRef.current && key === topoTunnelKey && r && r.tunnels) {
+            setRuntime(r);
+          }
+        })
+        .catch(() => {
+          // 自动刷新失败保持上次结果
+        });
+    }, AUTO_REFRESH_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [autoRefresh, topoTunnelKey]);
   const summary = topo ? summarizeTopology(topo) : null;
   const issueTunnels = topo ? topo.tunnels.filter((t) => tunnelStatus(topo, t.id, statusMap) === 'issue').length : 0;
   const offlineNodes = topo ? countOfflineNodes(topo, runtimeMap) : 0;
@@ -517,6 +621,8 @@ const Srv6ArchitecturePage: React.FC = () => {
                     </span>
                   ) : null}
                   {!reconcile ? <span className="is-muted">对账不可用</span> : null}
+                  {trafficLoading ? <span className="is-muted">运行态采样中</span> : null}
+                  {autoRefresh && !trafficLoading ? <span className="is-muted">自动刷新 {AUTO_REFRESH_MS / 1000}s</span> : null}
                 </div>
               ) : null}
               <ArchCanvas
@@ -524,13 +630,15 @@ const Srv6ArchitecturePage: React.FC = () => {
                 nameOf={vrLabel}
                 statusMap={statusMap}
                 runtimeMap={runtimeMap}
-                trafficMap={trafficMap}
+                runtime={runtime}
                 selection={selection}
                 hoverTunnelId={hoverTunnelId}
                 listOpen={listOpen}
-                refreshing={refreshing}
+                refreshing={refreshing || trafficLoading}
+                autoRefresh={autoRefresh}
                 onSelect={setSelection}
                 onToggleTunnelList={() => setListOpen((v) => !v)}
+                onAutoRefreshChange={setAutoRefresh}
                 onRefresh={() => {
                   void load({ soft: true });
                   setTrafficTick((n) => n + 1);
@@ -594,6 +702,22 @@ const Srv6ArchitecturePage: React.FC = () => {
                     render: (_: unknown, r) => (r.peOffline ? '端点离线' : '端点在线'),
                   },
                   {
+                    title: '公网 BGP',
+                    key: 'bgp',
+                    render: (_: unknown, r) => publicBgpText(runtime?.tunnels?.[r.id]?.publicBgp),
+                  },
+                  {
+                    title: '流量',
+                    key: 'traffic',
+                    render: (_: unknown, r) => {
+                      const tr = runtime?.tunnels?.[r.id];
+                      const text = trafficSubLabel(tr) || '—';
+                      return (
+                        <span className={hasBadTraffic(tr) ? 'srv6-topo-traffic-bad' : undefined}>{text}</span>
+                      );
+                    },
+                  },
+                  {
                     title: topo.mode === 'hub' ? 'Hub PE' : 'PE-A',
                     key: 'src',
                     render: (_: unknown, r) => vrLabel(r.sourceUuid),
@@ -639,6 +763,7 @@ const Srv6ArchitecturePage: React.FC = () => {
             selection={selection}
             statusMap={statusMap}
             runtimeMap={runtimeMap}
+            runtime={runtime}
             nameOf={vrLabel}
             onClose={() => setSelection(null)}
             onSelectTunnel={(id) => setSelection({ kind: 'tunnel', id })}

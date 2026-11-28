@@ -2,8 +2,21 @@
  * SRv6 架构拓扑：右侧详情抽屉（点击节点 / 隧道）。
  */
 import React from 'react';
-import { Button, Descriptions, Drawer, Empty, List, Space, Tag, Typography } from 'antd';
+import { Button, Descriptions, Drawer, Empty, List, Space, Tag, Tooltip, Typography } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import { abbrIfName, type Srv6Topology } from './buildTopology';
+import type { Srv6DirectionTraffic, Srv6TopologyRuntimeResp } from '../../../../../../services/api';
+import {
+  TRAFFIC_TIP,
+  attachKey,
+  attachLiveLabel,
+  directionHasBad,
+  directionText,
+  privateBgpText,
+  publicBgpText,
+  vbrasText,
+  vrrpText,
+} from './runtimeTraffic';
 import {
   RUNTIME_COLOR,
   RUNTIME_LABEL,
@@ -34,6 +47,16 @@ const RuntimeTag: React.FC<{ runtime: RuntimeStatus }> = ({ runtime }) => (
 
 const ROLE_TEXT: Record<string, string> = { hub: 'Hub PE', spoke: 'Spoke PE', pe: 'PE', ce: 'CE' };
 
+const DirectionValue: React.FC<{ d?: Srv6DirectionTraffic }> = ({ d }) => {
+  const bad = directionHasBad(d);
+  return (
+    <span className={bad ? 'srv6-topo-traffic-bad' : undefined}>
+      {directionText(d)}
+      {bad ? ` · 异常 ${d?.badDelta}` : ''}
+    </span>
+  );
+};
+
 type Props = {
   topo: Srv6Topology;
   selection: Selection;
@@ -43,6 +66,7 @@ type Props = {
   onClose: () => void;
   onSelectTunnel: (tunnelId: string) => void;
   onEnterTunnel: (tunnelId: string) => void;
+  runtime?: Srv6TopologyRuntimeResp | null;
 };
 
 const TopoDetailDrawer: React.FC<Props> = ({
@@ -54,6 +78,7 @@ const TopoDetailDrawer: React.FC<Props> = ({
   onClose,
   onSelectTunnel,
   onEnterTunnel,
+  runtime,
 }) => {
   const open = !!selection;
   const st = (uuid: string): ConfigStatus => statusMap[uuid]?.status || 'unknown';
@@ -86,6 +111,37 @@ const TopoDetailDrawer: React.FC<Props> = ({
             <Descriptions.Item label="运行态">
               {offline ? <Tag color="error">端点离线</Tag> : <Tag color="success">端点在线</Tag>}
             </Descriptions.Item>
+            {runtime?.tunnels?.[t.id] ? (
+              <>
+                <Descriptions.Item label="公网 BGP">{publicBgpText(runtime.tunnels[t.id]!.publicBgp)}</Descriptions.Item>
+                <Descriptions.Item
+                  label={
+                    <Tooltip title={TRAFFIC_TIP}>
+                      <span>
+                        到 {nameOf(t.targetUuid)} <InfoCircleOutlined />
+                      </span>
+                    </Tooltip>
+                  }
+                >
+                  <DirectionValue d={runtime.tunnels[t.id]!.directions.aToB} />
+                </Descriptions.Item>
+                <Descriptions.Item label={`到 ${nameOf(t.sourceUuid)}`}>
+                  <DirectionValue d={runtime.tunnels[t.id]!.directions.bToA} />
+                </Descriptions.Item>
+                {(() => {
+                  const hubUuid = topo.centerUuid || (t.topology === 'H' ? t.sourceUuid : '');
+                  const hubAgg = hubUuid ? runtime.hubAggregates?.[hubUuid] : undefined;
+                  const spokeToHub =
+                    runtime.tunnels[t.id]!.directions.aToB.state === 'hub_aggregate' ||
+                    runtime.tunnels[t.id]!.directions.bToA.state === 'hub_aggregate';
+                  return spokeToHub && hubAgg ? (
+                    <Descriptions.Item label="Hub 入向合计">
+                      <DirectionValue d={hubAgg} />
+                    </Descriptions.Item>
+                  ) : null;
+                })()}
+              </>
+            ) : null}
             <Descriptions.Item label="类型">{t.topology === 'H' ? 'Hub-Spoke' : '点对点'}</Descriptions.Item>
             <Descriptions.Item label={topo.mode === 'hub' ? 'Hub PE' : 'PE-A'}>{nameOf(t.sourceUuid)}</Descriptions.Item>
             <Descriptions.Item label={topo.mode === 'hub' ? 'Spoke PE' : 'PE-B'}>{nameOf(t.targetUuid)}</Descriptions.Item>
@@ -97,12 +153,22 @@ const TopoDetailDrawer: React.FC<Props> = ({
             {t.vrfMode ? (
               <Descriptions.Item label="VRF 模式">{t.vrfMode === 'REUSE_VRF' ? '复用 VRF' : '独立 VRF'}</Descriptions.Item>
             ) : null}
-            {attaches.map((a) => (
-              <Descriptions.Item key={a.id} label={`接入 ${nameOf(uuidOf.get(a.ceNodeId) || '')}`}>
-                {a.innerIf ? abbrIfName(a.innerIf) : '-'}
-              </Descriptions.Item>
-            ))}
+            {attaches.map((a) => {
+              const peU = uuidOf.get(a.peNodeId) || '';
+              const ceU = uuidOf.get(a.ceNodeId) || '';
+              const att = runtime?.attaches?.[attachKey(peU, ceU)];
+              return (
+                <Descriptions.Item key={a.id} label={`接入 ${nameOf(ceU)}`}>
+                  {[a.innerIf ? abbrIfName(a.innerIf) : '', attachLiveLabel(att)].filter(Boolean).join(' · ') || '-'}
+                </Descriptions.Item>
+              );
+            })}
           </Descriptions>
+          {runtime?.tunnels?.[t.id] ? (
+            <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
+              {TRAFFIC_TIP}
+            </Typography.Paragraph>
+          ) : null}
           <Typography.Title level={5} style={{ marginTop: 16 }}>
             四端状态
           </Typography.Title>
@@ -163,6 +229,19 @@ const TopoDetailDrawer: React.FC<Props> = ({
             <Descriptions.Item label="运行状态">
               <RuntimeTag runtime={rt(n.uuid)} />
             </Descriptions.Item>
+            {runtime?.nodes?.[n.uuid] ? (
+              <Descriptions.Item label="vbras">
+                {vbrasText(runtime.nodes[n.uuid]!.vbras) || '未知'}
+              </Descriptions.Item>
+            ) : null}
+            {runtime?.nodes?.[n.uuid] && 'vrrpRole' in (runtime.nodes[n.uuid] || {}) ? (
+              <Descriptions.Item label="VRRP">{vrrpText(runtime.nodes[n.uuid]!.vrrpRole) || '未知'}</Descriptions.Item>
+            ) : null}
+            {n.role === 'hub' && runtime?.hubAggregates?.[n.uuid] ? (
+              <Descriptions.Item label="入向合计">
+                <DirectionValue d={runtime.hubAggregates[n.uuid]} />
+              </Descriptions.Item>
+            ) : null}
             <Descriptions.Item label="关联隧道">{n.tunnelIds.length} 条</Descriptions.Item>
           </Descriptions>
           {s?.issues?.length ? (
@@ -206,6 +285,52 @@ const TopoDetailDrawer: React.FC<Props> = ({
                   {t.focus ? <Tag color="blue">当前</Tag> : null}
                   {tunnelPeOffline(topo, t.id, runtimeMap) ? <Tag color="error">端点离线</Tag> : null}
                 </Space>
+              </List.Item>
+            )}
+          />
+        </>
+      );
+    }
+  } else if (selection?.kind === 'attach') {
+    const a = topo.attaches.find((x) => x.id === selection.id);
+    if (a) {
+      const peU = uuidOf.get(a.peNodeId) || '';
+      const ceU = uuidOf.get(a.ceNodeId) || '';
+      const att = runtime?.attaches?.[attachKey(peU, ceU)];
+      title = (
+        <Space>
+          接入
+          {nameOf(peU)}
+          <span>—</span>
+          {nameOf(ceU)}
+        </Space>
+      );
+      body = (
+        <>
+          <Descriptions size="small" column={1} bordered>
+            <Descriptions.Item label="PE">{nameOf(peU)}</Descriptions.Item>
+            <Descriptions.Item label="CE">{nameOf(ceU)}</Descriptions.Item>
+            {a.innerIf ? <Descriptions.Item label="接入口">{abbrIfName(a.innerIf)}</Descriptions.Item> : null}
+            <Descriptions.Item label="私网 BGP">{att ? privateBgpText(att.privateBgp) : '—'}</Descriptions.Item>
+            {att?.vrf ? <Descriptions.Item label="VRF">{att.vrf}</Descriptions.Item> : null}
+            {att?.prefixReceived != null ? (
+              <Descriptions.Item label="收到前缀">{att.prefixReceived}</Descriptions.Item>
+            ) : null}
+          </Descriptions>
+          <List
+            size="small"
+            style={{ marginTop: 12 }}
+            header="关联隧道"
+            dataSource={topo.tunnels.filter((t) => a.tunnelIds.includes(t.id))}
+            renderItem={(t) => (
+              <List.Item
+                actions={[
+                  <Button key="v" type="link" size="small" onClick={() => onSelectTunnel(t.id)}>
+                    查看
+                  </Button>,
+                ]}
+              >
+                {t.name}
               </List.Item>
             )}
           />

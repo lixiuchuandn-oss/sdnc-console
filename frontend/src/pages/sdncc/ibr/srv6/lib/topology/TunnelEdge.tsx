@@ -14,9 +14,13 @@ export type TunnelEdgeData = {
   focus?: boolean;
   groupIndex?: number;
   groupSize?: number;
-  /** 配置态颜色（P1-c 对账接入前为 undefined） */
+  /** 配置态 / 运行态颜色（P1-c 对账接入前为 undefined） */
   stroke?: string;
   dashed?: boolean;
+  /** 悬停说明（流量口径 / 接入边 BGP） */
+  tip?: string;
+  /** 副标题标红（Bad Δ>0） */
+  subWarn?: boolean;
 };
 
 export const PARALLEL_GAP = 28;
@@ -71,6 +75,7 @@ const TunnelEdge: React.FC<EdgeProps<TunnelEdgeData>> = ({
 
   return (
     <g className={`srv6-topo-edge srv6-topo-edge--${kind}${focus ? ' is-focus' : ''}`}>
+      {data?.tip ? <title>{data.tip}</title> : null}
       <path
         id={id}
         d={path}
@@ -106,7 +111,13 @@ const TunnelEdge: React.FC<EdgeProps<TunnelEdgeData>> = ({
             {label}
           </text>
           {sub ? (
-            <text textAnchor="middle" y={11} fontSize={10} fill="#86909c" className="is-mono">
+            <text
+              textAnchor="middle"
+              y={11}
+              fontSize={10}
+              fill={data?.subWarn ? '#f53f3f' : '#86909c'}
+              className="is-mono"
+            >
               {sub}
             </text>
           ) : null}

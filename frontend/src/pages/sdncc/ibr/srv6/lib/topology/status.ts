@@ -139,11 +139,21 @@ export function countOfflineNodes(topo: Srv6Topology, runtimeMap: Record<string,
   return topo.nodes.filter((n) => isStopped(runtimeOf(runtimeMap, n.uuid))).length;
 }
 
-export type Selection = { kind: 'node' | 'tunnel'; id: string } | null;
+export type Selection = { kind: 'node' | 'tunnel' | 'attach'; id: string } | null;
 
 /** 选中后需要保持高亮的节点/边 id（边 id 与 toFlowElements 一致） */
 export function relatedIds(topo: Srv6Topology, sel: Selection): Set<string> | null {
   if (!sel) return null;
+  if (sel.kind === 'attach') {
+    const a = topo.attaches.find((x) => x.id === sel.id);
+    const out = new Set<string>();
+    if (a) {
+      out.add(a.id);
+      out.add(a.peNodeId);
+      out.add(a.ceNodeId);
+    }
+    return out;
+  }
   const tunnelIds = new Set<string>();
   if (sel.kind === 'tunnel') tunnelIds.add(sel.id);
   else {

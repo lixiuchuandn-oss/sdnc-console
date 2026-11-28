@@ -358,6 +358,8 @@ export type Srv6TunnelWritePayload = {
     hubPeSlot: 'peA' | 'peB';
     wanIf: string;
     lanIf?: string;
+    wanInventoryId?: string;
+    lanInventoryId?: string;
     peerPublicNeighbor: string;
   };
   hubVrfMode?: 'REUSE_VRF' | 'DEDICATED_VRF';
@@ -591,24 +593,51 @@ export type Srv6DirectionTraffic = {
   bps?: number;
   goodTotal?: { packets: number; bytes: number };
   badDelta?: number;
+  error?: string;
+};
+
+export type Srv6LinkHealth = 'up' | 'down' | 'unknown';
+export type Srv6VbrasState = 'running' | 'stopped' | 'unknown';
+export type Srv6VrrpRole = 'master' | 'backup' | null;
+
+export type Srv6RuntimeNode = {
+  reachable: 'online' | 'unknown';
+  vbras?: Srv6VbrasState;
+  vrrpRole?: Srv6VrrpRole;
+  error?: string;
+};
+
+export type Srv6RuntimeAttach = {
+  privateBgp: Srv6LinkHealth;
+  vrf?: string;
+  prefixReceived?: number;
 };
 
 export type Srv6TopologyRuntimeResp = {
   checkedAt: string;
-  nodes: Record<string, { reachable: 'online' | 'unknown'; error?: string }>;
+  nodes: Record<string, Srv6RuntimeNode>;
   tunnels: Record<
     string,
-    { publicBgp: 'up' | 'down' | 'unknown'; directions: { aToB: Srv6DirectionTraffic; bToA: Srv6DirectionTraffic } }
+    { publicBgp: Srv6LinkHealth; directions: { aToB: Srv6DirectionTraffic; bToA: Srv6DirectionTraffic } }
   >;
+  attaches?: Record<string, Srv6RuntimeAttach>;
   hubAggregates: Record<string, Srv6DirectionTraffic>;
 };
 
-/** R2：隧道运行态（实时拉设备 localsid 计数 + 公网 BGP；刷新必须真实拉取，不走缓存） */
-export const fetchSrv6TopologyRuntime = async (tunnelIds: string[]): Promise<Srv6TopologyRuntimeResp> => {
-  return await apiRequest(
-    `/api/networks/srv6/topology-runtime?tunnelIds=${encodeURIComponent(tunnelIds.join(','))}`,
-    { skipCache: true },
-  );
+/** R2：隧道运行态（实时拉设备 localsid 计数 + BGP；刷新必须真实拉取。sample=2 为首屏双采样出速率） */
+export const fetchSrv6TopologyRuntime = async (
+  tunnelIds: string[],
+  opts?: { sample?: 1 | 2 },
+): Promise<Srv6TopologyRuntimeResp> => {
+  const sample = opts?.sample === 2 ? 2 : 1;
+  const qs = new URLSearchParams();
+  qs.set('tunnelIds', tunnelIds.join(','));
+  if (sample === 2) qs.set('sample', '2');
+  return await apiRequest(`/api/networks/srv6/topology-runtime?${qs.toString()}`, {
+    skipCache: true,
+    // 双采样约 3s + 两轮设备拉取，失败后重试会把等待叠成数倍
+    enableRetry: sample !== 2,
+  });
 };
 
 export const fetchSrv6Topology = async (tunnelId: string): Promise<Srv6TopologyResp> => {

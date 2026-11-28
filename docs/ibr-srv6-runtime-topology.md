@@ -1,6 +1,6 @@
 # SRv6 隧道运行态展示（流量统计 + 拓扑叠加）设计
 
-> 状态：**方案已定，待开发**（2026-11-27 评审结论）。
+> 状态：**R1–R3 已落地**（2026-11-28）。R4（agent 周期上报与趋势曲线）后续。
 > 底层分析参考：开发机 VR 仓 `doc/SRv6_Localsid_Counter_Analysis.md`。
 > 相关：`docs/srv6-config-ledger-and-drift.md`（配置面，本方案**不涉及**）、`backend/src/routes/sdn/srv6.health.ts`、`frontend/src/pages/sdncc/ibr/srv6/lib/topology/buildTopology.ts`。
 
@@ -220,12 +220,12 @@ type Srv6DirectionTraffic = {
 
 ## 6. 开发计划
 
-| 阶段 | 内容 | 涉及仓 |
-|---|---|---|
-| R1 | local-web localsid/policy 计数接口 + 解析单测（用 §2.1 实测输出作 fixture） | `ibr-local-web` + 原仓 `Paas-VRv2` |
-| R2 | SDNC 后端 client、速率计算、runtime 聚合接口 + 单测（方向匹配、Δ<0、REUSE_VRF） | `backend` |
-| R3 | 前端拓扑叠加（节点三项、隧道边、接入边）+ 隧道详情流量区块 | `frontend` |
-| R4（后续） | 修 agent 采集问题（§2.3），评估周期上报与趋势曲线 | `ibr-local-agent` + 原仓 |
+| 阶段 | 内容 | 涉及仓 | 状态 |
+|---|---|---|---|
+| R1 | local-web localsid/policy 计数接口 + 解析单测（用 §2.1 实测输出作 fixture） | `ibr-local-web` + 原仓 `Paas-VRv2` | 已落地 |
+| R2 | SDNC 后端 client、速率计算、runtime 聚合接口 + 单测（方向匹配、Δ<0、REUSE_VRF）；`sample=2` 首屏双采样；接入边 `prefixReceived` | `backend` | 已落地 |
+| R3 | 前端拓扑叠加（节点三项、隧道边、接入边、BGP 配色、图例、可选 ≥10s 自动刷新、Hub 入向合计、详情抽屉） | `frontend` | 已落地 |
+| R4（后续） | 修 agent 采集问题（§2.3），评估周期上报与趋势曲线 | `ibr-local-agent` + 原仓 | 未开始 |
 
 ## 7. 待确认 / 风险
 
