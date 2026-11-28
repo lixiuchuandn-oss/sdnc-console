@@ -584,6 +584,33 @@ export type Srv6TopologyResp = {
 };
 
 /** P2：架构拓扑聚合（含双 Hub 一跳扩展与拓扑内只读对账） */
+export type Srv6DirectionTraffic = {
+  state: 'active' | 'not_effective' | 'hub_aggregate' | 'sampling' | 'unknown';
+  localsid?: string;
+  pps?: number;
+  bps?: number;
+  goodTotal?: { packets: number; bytes: number };
+  badDelta?: number;
+};
+
+export type Srv6TopologyRuntimeResp = {
+  checkedAt: string;
+  nodes: Record<string, { reachable: 'online' | 'unknown'; error?: string }>;
+  tunnels: Record<
+    string,
+    { publicBgp: 'up' | 'down' | 'unknown'; directions: { aToB: Srv6DirectionTraffic; bToA: Srv6DirectionTraffic } }
+  >;
+  hubAggregates: Record<string, Srv6DirectionTraffic>;
+};
+
+/** R2：隧道运行态（实时拉设备 localsid 计数 + 公网 BGP；刷新必须真实拉取，不走缓存） */
+export const fetchSrv6TopologyRuntime = async (tunnelIds: string[]): Promise<Srv6TopologyRuntimeResp> => {
+  return await apiRequest(
+    `/api/networks/srv6/topology-runtime?tunnelIds=${encodeURIComponent(tunnelIds.join(','))}`,
+    { skipCache: true },
+  );
+};
+
 export const fetchSrv6Topology = async (tunnelId: string): Promise<Srv6TopologyResp> => {
   return await apiRequest(`/api/networks/srv6/topology/${encodeURIComponent(tunnelId)}`, {
     skipCache: true,

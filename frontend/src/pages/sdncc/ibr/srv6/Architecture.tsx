@@ -16,6 +16,7 @@ import {
   fetchSrv6HubStatus,
   fetchSrv6Reconcile,
   fetchSrv6Topology,
+  fetchSrv6TopologyRuntime,
   fetchSrv6Tunnel,
   fetchSrv6Tunnels,
   type Srv6HubVrStatus,
@@ -49,6 +50,7 @@ import {
   type VrStatus,
 } from './lib/topology/status';
 import TopoDetailDrawer from './lib/topology/TopoDetailDrawer';
+import type { TunnelRuntime } from './lib/topology/runtimeTraffic';
 
 const emptyCatalog = (): { vrs: IbrVrRow[]; nameMap: Record<string, string> } => ({
   vrs: [],
@@ -186,6 +188,7 @@ type ArchCanvasProps = {
   nameOf: (uuid: string) => string;
   statusMap: Record<string, VrStatus>;
   runtimeMap: Record<string, RuntimeStatus>;
+  trafficMap?: Record<string, TunnelRuntime>;
   selection: Selection;
   hoverTunnelId: string | null;
   listOpen: boolean;
@@ -200,6 +203,7 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
   nameOf,
   statusMap,
   runtimeMap,
+  trafficMap,
   selection,
   hoverTunnelId,
   listOpen,
@@ -211,8 +215,8 @@ const ArchCanvas: React.FC<ArchCanvasProps> = ({
   const [locked, setLocked] = useState(false);
   const related = useMemo(() => relatedIds(topo, selection), [topo, selection]);
   const { nodes, edges } = useMemo(
-    () => toFlowElements(topo, nameOf, { statusMap, runtimeMap, related, hoverTunnelId }),
-    [topo, nameOf, statusMap, runtimeMap, related, hoverTunnelId],
+    () => toFlowElements(topo, nameOf, { statusMap, runtimeMap, related, hoverTunnelId, trafficMap }),
+    [topo, nameOf, statusMap, runtimeMap, related, hoverTunnelId, trafficMap],
   );
   return (
     <ReactFlow
@@ -421,6 +425,25 @@ const Srv6ArchitecturePage: React.FC = () => {
 
   const statusMap = useMemo(() => (topo ? buildStatusMap(topo, reconcile) : {}), [topo, reconcile]);
   const runtimeMap = useMemo(() => buildRuntimeMap(vrRows), [vrRows]);
+
+  // R3：隧道运行态（实时拉设备）；拓扑隧道集变化或用户刷新时重新拉取
+  const [trafficMap, setTrafficMap] = useState<Record<string, TunnelRuntime>>({});
+  const [trafficTick, setTrafficTick] = useState(0);
+  const topoTunnelKey = topo ? topo.tunnels.map((t) => t.id).sort().join(',') : '';
+  useEffect(() => {
+    if (!topoTunnelKey) return;
+    let alive = true;
+    fetchSrv6TopologyRuntime(topoTunnelKey.split(','))
+      .then((r) => {
+        if (alive && r && r.tunnels) setTrafficMap(r.tunnels);
+      })
+      .catch(() => {
+        // 运行态失败不阻塞拓扑：保持上次结果
+      });
+    return () => {
+      alive = false;
+    };
+  }, [topoTunnelKey, trafficTick]);
   const summary = topo ? summarizeTopology(topo) : null;
   const issueTunnels = topo ? topo.tunnels.filter((t) => tunnelStatus(topo, t.id, statusMap) === 'issue').length : 0;
   const offlineNodes = topo ? countOfflineNodes(topo, runtimeMap) : 0;
@@ -501,6 +524,7 @@ const Srv6ArchitecturePage: React.FC = () => {
                 nameOf={vrLabel}
                 statusMap={statusMap}
                 runtimeMap={runtimeMap}
+                trafficMap={trafficMap}
                 selection={selection}
                 hoverTunnelId={hoverTunnelId}
                 listOpen={listOpen}
@@ -509,6 +533,7 @@ const Srv6ArchitecturePage: React.FC = () => {
                 onToggleTunnelList={() => setListOpen((v) => !v)}
                 onRefresh={() => {
                   void load({ soft: true });
+                  setTrafficTick((n) => n + 1);
                 }}
               />
             </div>

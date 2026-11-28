@@ -31,6 +31,7 @@ import { buildSrv6TunnelHealth } from './srv6.health';
 import { buildSrv6TunnelHealthSummaries } from './srv6.listHealth';
 import { reconcileAllSrv6Vrs } from './srv6.reconcile';
 import { buildSrv6Topology } from './srv6.topology';
+import { buildSrv6TopologyRuntime } from './srv6.runtime';
 import { findSrv6TunnelsReferencingVr } from './srv6.references';
 import { alignReuseVrfTunnelArchive } from './srv6.reuseRdRt';
 import { syncSrv6TunnelPlatformConfigs } from './srv6.sync';
@@ -421,6 +422,30 @@ srv6Routes.get('/topology/:tunnelId', async (req, res, next) => {
       return;
     }
     res.json(topo);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** P4：SRv6 配置对账并可选修复 */
+/** R2：SRv6 隧道运行态（实时拉设备 localsid 计数 + 公网 BGP），docs/ibr-srv6-runtime-topology.md §5.2 */
+srv6Routes.get('/topology-runtime', async (req, res, next) => {
+  try {
+    const role = (req as any).user?.role;
+    const perms: string[] = Array.isArray((req as any).user?.permissions) ? (req as any).user?.permissions : [];
+    if (!(role === 'super_admin' || perms.includes('networks.srv6:read') || perms.includes('networks.srv6:write'))) {
+      return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
+    }
+    const ids = String(req.query.tunnelIds || '')
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .slice(0, 64);
+    if (!ids.length) {
+      res.status(400).json({ message: '缺少 tunnelIds' });
+      return;
+    }
+    res.json(await buildSrv6TopologyRuntime(ids));
   } catch (e) {
     next(e);
   }

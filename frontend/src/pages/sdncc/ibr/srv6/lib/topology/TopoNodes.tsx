@@ -20,6 +20,7 @@ import {
   type RuntimeStatus,
   type VrStatus,
 } from './status';
+import { runtimeStroke, trafficSubLabel, type TunnelRuntime } from './runtimeTraffic';
 
 export type PeNodeData = {
   role: TopoNode['role'];
@@ -142,6 +143,8 @@ export type FlowOptions = {
   /** 选中后的关联集合；null 表示无选中 */
   related?: Set<string> | null;
   hoverTunnelId?: string | null;
+  /** R3：隧道运行态（流量 / 公网 BGP），key = tunnelId */
+  trafficMap?: Record<string, TunnelRuntime>;
 };
 
 export function toFlowElements(
@@ -234,9 +237,13 @@ export function toFlowElements(
       const offline = tunnelPeOffline(topo, t.id, runtimeMap);
       const ts = hasStatus ? tunnelStatus(topo, t.id, statusMap) : null;
       const hover = opts.hoverTunnelId === t.id;
+      const trt = opts.trafficMap?.[t.id];
       let stroke: string | undefined;
       if (offline) stroke = OFFLINE_STROKE;
+      else if (runtimeStroke(trt)) stroke = runtimeStroke(trt);
       else if (ts && !(t.focus && ts === 'ok')) stroke = ts === 'ok' ? '#7bc96f' : STATUS_COLOR[ts];
+      const wanSub = t.hubWanIf ? `WAN ${abbrIfName(t.hubWanIf)}` : undefined;
+      const trafficSub = offline ? undefined : trafficSubLabel(trt);
       return {
         id: `t:${t.id}`,
         source: t.source,
@@ -253,9 +260,9 @@ export function toFlowElements(
           label: offline ? '端点离线' : t.name,
           subLabel: offline
             ? t.name + (t.hubWanIf ? ` · WAN ${abbrIfName(t.hubWanIf)}` : '')
-            : t.hubWanIf
-              ? `WAN ${abbrIfName(t.hubWanIf)}`
-              : undefined,
+            : trafficSub
+              ? (wanSub ? `${wanSub} · ` : '') + trafficSub
+              : wanSub,
           focus: t.focus || hover,
           groupIndex: t.groupIndex,
           groupSize: t.groupSize,
