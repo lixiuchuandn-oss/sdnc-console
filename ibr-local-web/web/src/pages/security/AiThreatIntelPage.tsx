@@ -179,7 +179,7 @@ export function AiThreatIntelPage() {
 								showIcon
 								style={{ marginBottom: 16 }}
 								message="暂不可用"
-								description="请先在「配置服务」中设置 AI SOC 地址。"
+								description="请先在「端点配置及IBR注册」中设置 AI SOC 地址。"
 							/>
 						) : null}
 						{loadHint === 'unavailable' ? (

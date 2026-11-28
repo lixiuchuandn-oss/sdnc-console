@@ -8,5 +8,7 @@ export type NavItem = {
 
 export type NavSection = {
 	key: string;
+	/** 分组小标题，用来区分互不依赖的操作线 */
+	title?: string;
 	items: NavItem[];
 };

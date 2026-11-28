@@ -9,8 +9,10 @@ export type RouteMeta = {
 export const ROUTE_META = new Map<string, RouteMeta>([
 	['/', { subnav: '概览', title: '仪表板', topKey: 'device' }],
 	['/init', { subnav: '参数配置', title: '初始化网卡', topKey: 'device' }],
-	['/device/ip', { subnav: '参数配置', title: '设定网卡IP', topKey: 'device' }],
-	['/device/service', { subnav: '参数配置', title: '配置服务', topKey: 'device' }],
+	['/device/nics/expand', { subnav: '参数配置', title: '辅助网卡管理', topKey: 'device' }],
+	['/device/factory-reset', { subnav: '参数配置', title: '恢复出厂设置', topKey: 'device' }],
+	['/device/ip', { subnav: '参数配置', title: '设置网口IP', topKey: 'device' }],
+	['/device/service', { subnav: '参数配置', title: '端点配置及IBR注册', topKey: 'device' }],
 	['/ops/health', { subnav: '运维管理', title: '健康巡检', topKey: 'device' }],
 	['/ops/logs', { subnav: '运维管理', title: '查看日志', topKey: 'device' }],
 	['/ops/agent', { subnav: '运维管理', title: 'Agent 状态', topKey: 'device' }],

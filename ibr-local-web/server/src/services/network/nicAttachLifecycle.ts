@@ -734,8 +734,8 @@ export function previewRemoveStartup(params: {
 	const removed = removeStartupInterfaceStanzas({ existingContent: existing, pcis: params.removePcis });
 	const returnToOs = params.returnToOs === true;
 	const note = returnToOs
-		? '将从 Paas 清单与 startup-config 移除下列辅助口（含子接口），并退回内核驱动。WAN/LAN/管理口不可删。'
-		: '将从 Paas 清单与 startup-config 移除下列辅助口（含子接口）。口可能仍留在 VPP/hardware。WAN/LAN/管理口不可删。';
+		? '将从 Paas 清单与 startup-config 移除下列辅助口（含子接口），并退回内核驱动（需短中断重启 VBRAS）。WAN/LAN/管理口不可删。'
+		: '将从 Paas 清单与 startup-config 移除下列辅助口（含子接口），不重启 VBRAS。口可能仍留在 VPP/hardware。WAN/LAN/管理口不可删。';
 	return {
 		preview: removed.preview,
 		removedNames: removed.removedNames,

@@ -1,5 +1,5 @@
 import { CloudUploadOutlined, PlayCircleOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
-import { Alert, App as AntApp, Button, Descriptions, Grid, Progress, Space, Spin, Tag, Typography } from 'antd';
+import { Alert, App as AntApp, Button, Descriptions, Grid, Progress, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api/client';
@@ -56,31 +56,21 @@ type StatusResp = {
 	trace_id?: string;
 	/** 部分子系统失败时列出代号，如 `vbras_cli`、`system_stats` */
 	degraded?: string[];
-	sdnc_console_base?: string | null;
-	sdnc_csmctl_address?: string | null;
-	compute_tower_base?: string | null;
-	ai_soc_base?: string | null;
-	/** @deprecated 与 compute_tower_base 相同 */
-	tower_base?: string | null;
-	/** @deprecated 与 sdnc_csmctl_address 相同 */
-	sdwan_manageip?: string | null;
-	/** 与「配置服务」中各上游地址对应的 HTTP 可达性 */
+	/** 接入地址的 HTTP 可达性（未配置为 null；pending 表示后台探测中） */
 	service_reachability?: {
 		pending?: boolean;
 		sdnc_console?: boolean | null;
 		sdnc_csmctl?: boolean | null;
-		compute_tower?: boolean | null;
-		aisoc?: boolean | null;
-		/** @deprecated */
 		tower?: boolean | null;
-		/** @deprecated */
 		sdwan?: boolean | null;
+		aisoc?: boolean | null;
 		checked_at?: number;
 	};
 };
 
 type AgentSummary = {
 	registration_finish?: boolean;
+	registration_status?: 'ONLINE' | 'OFFLINE' | string;
 	download_files?: string[];
 	netjson?: Record<string, unknown> | null;
 };
@@ -125,24 +115,8 @@ function linkDriverOnly(link: NetLink | undefined): string {
 	return d;
 }
 
-/** 仪表板展示用：host:port，与「配置服务」表单一致 */
-function formatServiceAddress(raw: string | null | undefined): string {
-	const v = String(raw ?? '').trim();
-	if (!v) return '未配置';
-	if (v.includes('://')) {
-		try {
-			const u = new URL(v);
-			return u.host || v;
-		} catch {
-			return v.split('://')[1]?.split('/')[0]?.trim() || v;
-		}
-	}
-	return v.split('/')[0]?.trim() || v;
-}
-
 export function HomePage() {
 	const navigate = useNavigate();
-	const { message } = AntApp.useApp();
 	const screens = Grid.useBreakpoint();
 	const desktop = Boolean(screens.md);
 	const nicCols = screens.sm ? (desktop ? 3 : 2) : 1;
@@ -156,9 +130,42 @@ export function HomePage() {
 	const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 	const [op, setOp] = useState<null | 'start' | 'stop' | 'restart'>(null);
 	const [opError, setOpError] = useState<string | null>(null);
-	const [reporting, setReporting] = useState(false);
 	const mountedRef = useRef(true);
 
+	const refresh = useCallback(
+		async (opts?: { silent?: boolean }) => {
+			const silent = Boolean(opts?.silent);
+			if (!silent) setLoading(true);
+			else setRefreshing(true);
+			setError(null);
+			try {
+				const [statusRes, agentRes] = await Promise.allSettled([
+					api.get<StatusResp>('/status'),
+					api.get<AgentSummary>('/forwarding/agent/status'),
+				]);
+				if (!mountedRef.current) return;
+				if (statusRes.status === 'fulfilled') {
+					setStatus(statusRes.value.data);
+					setLastUpdated(Date.now());
+				} else {
+					setError(statusRes.reason instanceof Error ? statusRes.reason.message : '请求失败');
+				}
+				if (agentRes.status === 'fulfilled') setAgentSummary(agentRes.value.data);
+			} catch (e) {
+				if (!mountedRef.current) return;
+				setError(e instanceof Error ? e.message : '请求失败');
+			} finally {
+				if (!mountedRef.current) return;
+				if (!silent) setLoading(false);
+				setRefreshing(false);
+			}
+		},
+		[],
+	);
+
+	const [reporting, setReporting] = useState(false);
+	const [syncing, setSyncing] = useState(false);
+	const { modal } = AntApp.useApp();
 	const reportManagementIp = useCallback(async () => {
 		setReporting(true);
 		try {
@@ -177,41 +184,54 @@ export function HomePage() {
 		} finally {
 			if (mountedRef.current) setReporting(false);
 		}
-	}, [message]);
+	}, []);
 
-	const refresh = useCallback(
-		async (opts?: { silent?: boolean }) => {
-			const silent = Boolean(opts?.silent);
-			if (!silent) setLoading(true);
-			else setRefreshing(true);
-			setError(null);
-			try {
-				const [statusRes, agentRes] = await Promise.allSettled([
-					api.get<StatusResp>('/status'),
-					api.get<AgentSummary>('/forwarding/agent/status'),
-				]);
-				if (mountedRef.current) {
-					if (statusRes.status === 'fulfilled') {
-						setStatus(statusRes.value.data);
-						setLastUpdated(Date.now());
-					} else {
-						setError(statusRes.reason instanceof Error ? statusRes.reason.message : '请求失败');
+	const csmctlReachable = status?.service_reachability?.sdnc_csmctl === true;
+	const registrationOnline =
+		agentSummary?.registration_status === 'ONLINE' || Boolean(agentSummary?.registration_finish);
+	const nicsReady = Boolean(status?.nics_initialized);
+	const canSyncControllerConfig = nicsReady && csmctlReachable && registrationOnline;
+
+	const syncControllerConfig = useCallback(() => {
+		if (!nicsReady) {
+			message.warning('请先完成网卡初始化');
+			return;
+		}
+		if (!csmctlReachable) {
+			message.warning('本机与 SDN CSMCTL 不可达，无法同步');
+			return;
+		}
+		if (!registrationOnline) {
+			message.warning('设备未注册（非 ONLINE），无法同步');
+			return;
+		}
+		modal.confirm({
+			title: '从控制器同步配置？',
+			content: '将清空本机校验和，由 download 在下一轮拉取并应用控制器当前业务配置，可能覆盖本机已改 CLI。',
+			okText: '同步',
+			cancelText: '取消',
+			onOk: async () => {
+				setSyncing(true);
+				try {
+					const { data } = await api.post<{ ok?: boolean; error?: string; message?: string }>(
+						'/forwarding/agent/sync-controller-config',
+						{},
+					);
+					if (!data?.ok) {
+						message.error(data?.error || '同步失败');
+						return;
 					}
-					if (agentRes.status === 'fulfilled') setAgentSummary(agentRes.value.data);
+					message.success(data.message || '已请求从控制器同步配置，约 40 秒内由 download 拉取');
+					await refresh({ silent: true });
+				} catch (e) {
+					const err = e as { response?: { data?: { error?: string } }; message?: string };
+					message.error(err?.response?.data?.error || err?.message || '同步失败');
+				} finally {
+					if (mountedRef.current) setSyncing(false);
 				}
-			} catch (e) {
-				if (mountedRef.current) {
-					setError(e instanceof Error ? e.message : '请求失败');
-				}
-			} finally {
-				if (mountedRef.current) {
-					if (!silent) setLoading(false);
-					setRefreshing(false);
-				}
-			}
-		},
-		[],
-	);
+			},
+		});
+	}, [csmctlReachable, modal, nicsReady, refresh, registrationOnline]);
 
 	const refreshRef = useRef(refresh);
 	refreshRef.current = refresh;
@@ -314,49 +334,30 @@ export function HomePage() {
 	const healthItems = useMemo(() => {
 		const r = status?.service_reachability;
 		const pending = Boolean(r?.pending);
-		const line = (v: boolean | null, configured: boolean): { ok: boolean; neutral: boolean; value: string } => {
-			if (!configured) return { ok: false, neutral: true, value: '未配置' };
+		const sdnc = r?.sdnc_console ?? r?.tower ?? null;
+		const csm = r?.sdnc_csmctl ?? r?.sdwan ?? null;
+		const aisoc = r?.aisoc ?? null;
+		const line = (v: boolean | null): { ok: boolean; neutral: boolean; value: string } => {
 			if (pending) return { ok: false, neutral: true, value: '检测中…' };
-			if (v === null) return { ok: false, neutral: true, value: '—' };
+			if (v === null) return { ok: false, neutral: true, value: '未配置' };
 			return { ok: v, neutral: false, value: v ? '可达' : '不可达' };
 		};
-		const rows = [
-			{
-				key: 'sdnc-console',
-				label: 'SDN Console',
-				address: status?.sdnc_console_base,
-				reach: r?.sdnc_console ?? null,
-			},
-			{
-				key: 'sdnc-csmctl',
-				label: 'SDN CSMCTL',
-				address: status?.sdnc_csmctl_address ?? status?.sdwan_manageip,
-				reach: r?.sdnc_csmctl ?? r?.sdwan ?? null,
-			},
-			{
-				key: 'compute-tower',
-				label: 'Compute Tower',
-				address: status?.compute_tower_base ?? status?.tower_base,
-				reach: r?.compute_tower ?? r?.tower ?? null,
-			},
-			{
-				key: 'aisoc',
-				label: 'AI SOC',
-				address: status?.ai_soc_base,
-				reach: r?.aisoc ?? null,
-			},
+		const a = line(sdnc);
+		const b = line(csm);
+		const c = line(aisoc);
+		const ibrKnown = agentSummary != null;
+		const ibr = !ibrKnown
+			? { ok: false, neutral: true, value: '检测中…' }
+			: registrationOnline
+				? { ok: true, neutral: false, value: 'ONLINE' }
+				: { ok: false, neutral: false, value: 'OFFLINE' };
+		return [
+			{ key: 'sdnc', label: 'SDN Console', ...a },
+			{ key: 'csm', label: 'SDN CSMCTL', ...b },
+			{ key: 'ibr', label: 'IBR注册状态', ...ibr },
+			{ key: 'aisoc', label: 'AI SOC', ...c },
 		];
-		return rows.map((row) => {
-			const addr = formatServiceAddress(row.address);
-			const configured = addr !== '未配置';
-			return {
-				key: row.key,
-				label: row.label,
-				address: addr,
-				...line(row.reach, configured),
-			};
-		});
-	}, [status]);
+	}, [status?.service_reachability, agentSummary, registrationOnline]);
 
 	return (
 		<PageStack className="app-dashboard">
@@ -368,13 +369,20 @@ export function HomePage() {
 						{refreshing ? '（更新中…）' : ''}
 					</span>
 					<Space wrap>
-						{status?.nics_initialized ? null : (
-							<Button type="primary" onClick={() => navigate('/init')}>
-								去初始化向导
-							</Button>
-						)}
 						<Button icon={<CloudUploadOutlined />} onClick={() => void reportManagementIp()} loading={reporting}>
 							上报管理地址
+						</Button>
+						<Button
+							onClick={() => void syncControllerConfig()}
+							loading={syncing}
+							disabled={!canSyncControllerConfig}
+							title={
+								canSyncControllerConfig
+									? undefined
+									: '需网卡已初始化、CSMCTL 可达，且 IBR注册状态为 ONLINE'
+							}
+						>
+							从控制器同步配置
 						</Button>
 						<Button onClick={() => refresh({ silent: false })} loading={loading || refreshing}>
 							刷新
@@ -480,29 +488,18 @@ export function HomePage() {
 
 							<div className="app-dash-divider" />
 
-							<div className="app-ui-muted" style={{ marginBottom: 8, fontSize: 13 }}>
-								服务地址
-							</div>
-							<div style={{ display: 'grid', gap: 10 }}>
+							<div style={{ display: 'grid', gap: 8 }}>
 								{healthItems.map((it) => (
-									<div key={it.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-										<div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0, flex: 1 }}>
+									<div key={it.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+										<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 											<div
 												className={`app-dash-health-dot${
 													it.neutral ? ' app-dash-health-dot--neutral' : it.ok ? ' app-dash-health-dot--ok' : ' app-dash-health-dot--warn'
 												}`}
-												style={{ marginTop: 6 }}
 											/>
-											<div style={{ minWidth: 0 }}>
-												<div className="app-ui-strong">{it.label}</div>
-												<div className="app-ui-muted app-ui-mono" style={{ marginTop: 2, wordBreak: 'break-all' }}>
-													{it.address}
-												</div>
-											</div>
+											<span className="app-ui-muted">{it.label}</span>
 										</div>
-										<span className="app-ui-muted app-ui-mono" style={{ flexShrink: 0 }}>
-											{it.value}
-										</span>
+										<span className="app-ui-muted app-ui-mono">{it.value}</span>
 									</div>
 								))}
 							</div>
@@ -529,13 +526,6 @@ export function HomePage() {
 									<div className="app-dash-init-status">
 										<div>
 											<span className="app-ui-muted">初始化状态</span>
-											{status?.nics_initialized ? null : (
-												<div style={{ marginTop: 6 }}>
-													<Button size="small" type="link" style={{ padding: 0 }} onClick={() => navigate('/init')}>
-														去初始化
-													</Button>
-												</div>
-											)}
 										</div>
 										<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 											<Tag color={status?.nics_initialized ? 'green' : 'orange'} style={{ marginInlineEnd: 0 }}>
@@ -691,11 +681,11 @@ export function HomePage() {
 							<BlockHeader title="Agent / 云下发" />
 							<Card variant="padded">
 							<Descriptions size="small" column={1}>
-								<Descriptions.Item label="注册完成">
-									{agentSummary?.registration_finish ? (
-										<Tag color="green">是</Tag>
+								<Descriptions.Item label="IBR注册状态">
+									{agentSummary?.registration_status === 'ONLINE' || agentSummary?.registration_finish ? (
+										<Tag color="green">ONLINE</Tag>
 									) : (
-										<Tag>否 / 未知</Tag>
+										<Tag>OFFLINE</Tag>
 									)}
 								</Descriptions.Item>
 								<Descriptions.Item label="Download 包">

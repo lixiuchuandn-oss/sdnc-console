@@ -189,6 +189,15 @@ body {
 	flex-shrink: 0;
 }
 
+.app-nav-section-title {
+	padding: 0 10px 6px;
+	color: var(--app-text-muted);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.4;
+	letter-spacing: 0.04em;
+}
+
 .app-nav-item-wrap {
 	display: block;
 	width: 100%;
@@ -475,6 +484,14 @@ body {
 	margin-bottom: 2px !important;
 }
 
+.app-settings-required-mark {
+	display: inline-block;
+	margin-inline-end: 4px;
+	color: #ff4d4f;
+	font-family: SimSun, sans-serif;
+	line-height: 1;
+}
+
 .app-settings-list .ant-list-item-meta-description {
 	color: var(--app-text-muted);
 	font-size: 13px;
@@ -486,6 +503,14 @@ body {
 
 .app-settings-list-input {
 	width: min(280px, 42vw);
+}
+
+/* 可编辑空字段：placeholder 用正文黑，避免看起来像禁用的 UUID 栏 */
+.app-settings-list-input-fill.ant-input::placeholder,
+.app-settings-list .ant-input-affix-wrapper.app-settings-list-input-fill .ant-input::placeholder {
+	color: #111;
+	-webkit-text-fill-color: #111;
+	opacity: 1;
 }
 
 .app-settings-list-item-clickable {

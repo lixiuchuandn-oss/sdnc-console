@@ -7,6 +7,8 @@ import { DOMAIN_HOME, ROUTE_META } from './layout/routing';
 import { useAppNavSections } from './layout/useAppMenus';
 import { HomePage } from './pages/device/overview/overview';
 import { SetIpPage } from './pages/device/config/SetIpPage';
+import { FactoryResetPage } from './pages/device/config/FactoryResetPage';
+import { NicExpandPage } from './pages/device/config/NicExpandPage';
 import { NicInitPage } from './pages/device/config/NicInitPage';
 import { DeviceServicePage } from './pages/device/config/DeviceServicePage';
 import { HealthPage } from './pages/device/ops/HealthPage';
@@ -89,6 +91,8 @@ function AppRoutes() {
 		<Routes>
 			<Route path="/" element={<HomePage />} />
 			<Route path="/init" element={<NicInitPage />} />
+			<Route path="/device/nics/expand" element={<NicExpandPage />} />
+			<Route path="/device/factory-reset" element={<FactoryResetPage />} />
 			<Route path="/device/ip" element={<SetIpPage />} />
 			<Route path="/device/service" element={<DeviceServicePage />} />
 			<Route path="/device/nic-reset" element={<Navigate to="/init" replace />} />

@@ -12,6 +12,7 @@ export function AppSiderNav(props: AppSiderNavProps) {
 			{props.sections.map((section, index) => (
 				<div key={section.key} className="app-nav-section">
 					{index > 0 ? <div className="app-nav-gap" aria-hidden /> : null}
+					{section.title ? <div className="app-nav-section-title">{section.title}</div> : null}
 					{section.items.map((item) => {
 						const active = props.selectedKey === item.key;
 						return (

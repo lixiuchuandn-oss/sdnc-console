@@ -107,15 +107,26 @@ export function useAppNavSections(domain: AppDomain): NavSection[] {
 				items: [{ key: '/', label: '仪表板', icon: <DashboardOutlined /> }],
 			},
 			{
-				key: 'sub2',
+				key: 'sub-ctrl',
+				title: '控制器',
+				items: [{ key: '/device/service', label: '端点配置及IBR注册', icon: <ControlOutlined /> }],
+			},
+			{
+				key: 'sub-nics',
+				title: '业务网卡',
 				items: [
-					{ key: '/device/ip', label: '设定网卡 IP', icon: <LaptopOutlined /> },
-					{ key: '/device/service', label: '配置服务', icon: <ControlOutlined /> },
 					{ key: '/init', label: '初始化网卡', icon: <ApiOutlined /> },
+					{ key: '/device/ip', label: '设置网口IP', icon: <LaptopOutlined /> },
+					{ key: '/device/nics/expand', label: '辅助网卡管理', icon: <ApiOutlined /> },
 				],
 			},
 			{
-				key: 'sub3',
+				key: 'sub-factory',
+				items: [{ key: '/device/factory-reset', label: '恢复出厂设置', icon: <ControlOutlined /> }],
+			},
+			{
+				key: 'sub-ops',
+				title: '运维',
 				items: [
 					{ key: '/ops/health', label: '健康巡检', icon: <MedicineBoxOutlined /> },
 					{ key: '/ops/logs', label: '查看日志', icon: <FileTextOutlined /> },
